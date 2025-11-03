@@ -10,7 +10,7 @@
     html,body{height:100%;margin:0}
     #map{width:100%;height:100%}
 
-    .legend, .cert-box {
+    .legend, .cert-box, .sack-box {
       position:absolute;z-index:1000;background:#fff;padding:8px 10px;
       border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);
       font:14px/1.3 system-ui,Arial,sans-serif;
@@ -18,8 +18,11 @@
 
     .legend{bottom:12px;right:12px}
     .cert-box{bottom:12px;left:12px;}
+    .sack-box{bottom:110px;left:12px;} /* über den Zertifikaten */
 
-    .cert-box input[type="checkbox"] {
+    .cert-box input[type="checkbox"],
+    .legend input[type="checkbox"],
+    .sack-box input[type="checkbox"] {
       width:14px;
       height:14px;
       margin-right:5px;
@@ -45,6 +48,12 @@
 <!-- Suchfeld -->
 <div class="search-box">
   🔍 <input type="text" id="searchInput" placeholder="Firma, Kunde oder Ort suchen…" />
+</div>
+
+<!-- Sackware-Filter (links unten, über Zertifikaten) -->
+<div class="sack-box">
+  <b>Sackware</b><br>
+  <label><input type="checkbox" id="chkFireflies15"> FireFlies 15kg</label>
 </div>
 
 <!-- Zertifikate-Filter (links unten) -->
@@ -114,16 +123,17 @@ async function ladeDaten() {
     Papa.parse(sheetUrlFirmen, {
       download: true, header: false,
       complete: (r) => {
-        // A: Firma | B: Ort | C: Preis | ... | G: Zertifikate
-        const rows = r.data.filter(row => row.length >= 7 && row[0] && row[1]);
+        // A: Firma | B: Ort | C: Preis | ... | G: Zertifikate | H: Sackware
+        const rows = r.data.filter(row => row.length >= 8 && row[0] && row[1]); // >= 8 für Spalte H
         const daten = rows.map(row => ({
           firma: row[0].trim(),
           ort: row[1].trim(),
           preis: parseFloat((row[2] || "0").replace(",", ".")),
-          zert: (row[6] || "").trim()
+          zert: (row[6] || "").trim(),
+          sack: (row[7] || "").trim() // Spalte H
         }));
         const gültige = daten.filter(w => !isNaN(w.preis) && w.preis > 0);
-        const avg = gültige.reduce((a,b)=>a+b.preis,0)/gültige.length;
+        const avg = gültige.length ? (gültige.reduce((a,b)=>a+b.preis,0)/gültige.length) : 0;
         resolve(daten.map(w=>{
           if(isNaN(w.preis)||w.preis<=0){w.preis=avg;w.keinPreis=true;}else w.keinPreis=false;
           return w;
@@ -156,11 +166,24 @@ async function buildMap(){
     const c=geoCache[w.ort]||await geocode(w.ort);
     if(!c)continue;
     const f=colorForPrice(w.preis,w.keinPreis);
-    const zertInfo = w.zert ? `<br><b>Zertifikat:</b> ${w.zert}` : "<br><i>Kein Zertifikat</i>";
+
+    const zertInfo = w.zert ? `<br><b>Zertifikat:</b> ${w.zert}` : ""; // kein "keine Sackware"
+    const sackInfo = w.sack ? `<br><b>Sackware:</b> ${w.sack}` : ""; // nur anzeigen, wenn vorhanden
+
     const m=L.circleMarker([c.lat,c.lon],{radius:8,color:f,fillColor:f,fillOpacity:0.85})
-      .bindTooltip(`<b>${w.firma}</b><br>${w.ort}<br>${w.preis.toFixed(2)} €${zertInfo}`,{sticky:true})
+      .bindTooltip(
+        `<b>${w.firma}</b><br>${w.ort}<br>${w.preis.toFixed(2)} €${zertInfo}${sackInfo}`,
+        {sticky:true}
+      )
       .on("click",()=>handleMarkerClick(w.firma,c));
-    alleMarker.push({type:"firma",zert:w.zert.toLowerCase(),farbe:f,marker:m});
+
+    alleMarker.push({
+      type:"firma",
+      zert:(w.zert||"").toLowerCase(),
+      farbe:f,
+      sack:(w.sack||""),
+      marker:m
+    });
     bounds.extend([c.lat,c.lon]);
   }
 
@@ -190,12 +213,21 @@ function updateLayers(){
   const orange = chkOrange.checked;
   const rot = chkRot.checked;
   const grau = chkGrau.checked;
-  const kunden = chkKunden.checked;
+  const kundenFlag = chkKunden.checked;
+
+  const sackFireflies15 = document.getElementById("chkFireflies15").checked;
+  const sackTarget = "fireflies 15kg"; // Vergleich in Kleinbuchstaben
 
   for(const m of alleMarker){
     if(m.type === "kunde"){
-      if(kunden) map.addLayer(m.marker);
+      if(kundenFlag) map.addLayer(m.marker);
       continue;
+    }
+
+    // Sackware-Filter (nur anwenden, wenn Checkbox aktiv)
+    if (sackFireflies15) {
+      const s = (m.sack||"").toLowerCase().replace(/\s+/g,' ').trim();
+      if (s !== sackTarget) continue;
     }
 
     // Zertifikate filtern
@@ -208,10 +240,10 @@ function updateLayers(){
     if(!zertOK) continue;
 
     // Preisfarben filtern
-    if(m.farbe === "green" && gruen) map.addLayer(m.marker);
-    if(m.farbe === "orange" && orange) map.addLayer(m.marker);
-    if(m.farbe === "red" && rot) map.addLayer(m.marker);
-    if(m.farbe === "#9e9e9e" && grau) map.addLayer(m.marker);
+    if(m.farbe === "green" && gruen) { map.addLayer(m.marker); continue; }
+    if(m.farbe === "orange" && orange) { map.addLayer(m.marker); continue; }
+    if(m.farbe === "red" && rot) { map.addLayer(m.marker); continue; }
+    if(m.farbe === "#9e9e9e" && grau) { map.addLayer(m.marker); continue; }
   }
 }
 
