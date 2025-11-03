@@ -15,7 +15,7 @@
       border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);
       font:14px/1.3 system-ui,Arial,sans-serif;
     }
-    .legend{bottom:12px;right:12px;max-width:180px}
+    .legend{bottom:12px;right:12px;min-width:180px}
     .cert-box{bottom:12px;left:12px;}
 
     .cert-box input[type="checkbox"],
@@ -34,10 +34,45 @@
     }
     .cert-box hr{border:none;height:1px;background:#eee;margin:6px 0}
 
-    /* damit das multiple-Select nicht zu hoch wird */
-    #countryFilter {
+    /* custom dropdown */
+    .country-dropdown {
+      position: relative;
+      display: inline-block;
       width: 100%;
-      min-height: 110px;
+    }
+    .country-dropdown-button {
+      width: 100%;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 4px 6px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .country-dropdown-button:after {
+      content: "▾";
+      float: right;
+      opacity: .6;
+    }
+    .country-dropdown-menu {
+      position: absolute;
+      top: 110%;
+      left: 0;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.12);
+      z-index: 2000;
+      display: none;
+      min-width: 160px;
+      max-height: 170px;
+      overflow-y: auto;
+      padding: 6px 8px;
+    }
+    .country-dropdown-menu label {
+      display: block;
+      cursor: pointer;
+      margin-bottom: 3px;
     }
   </style>
 </head>
@@ -65,15 +100,17 @@
 <!-- Farben + Länderfilter -->
 <div class="legend">
   <b>Land / Länder filtern</b><br>
-  <!-- multiple + size = Mehrfachauswahl -->
-  <select id="countryFilter" multiple size="6">
-    <option value="all" selected>Alle</option>
-    <option value="de">Deutschland</option>
-    <option value="at">Österreich</option>
-    <option value="pl">Polen</option>
-    <option value="cz">Tschechien</option>
-    <option value="fr">Frankreich</option>
-  </select>
+  <div class="country-dropdown" id="countryDropdown">
+    <div class="country-dropdown-button" id="countryDropdownBtn">Alle Länder</div>
+    <div class="country-dropdown-menu" id="countryDropdownMenu">
+      <label><input type="checkbox" class="countryChk" value="all" checked> Alle</label>
+      <label><input type="checkbox" class="countryChk" value="de"> Deutschland</label>
+      <label><input type="checkbox" class="countryChk" value="at"> Österreich</label>
+      <label><input type="checkbox" class="countryChk" value="pl"> Polen</label>
+      <label><input type="checkbox" class="countryChk" value="cz"> Tschechien</label>
+      <label><input type="checkbox" class="countryChk" value="fr"> Frankreich</label>
+    </div>
+  </div>
   <br><br>
   <b>Filter Farben</b><br>
   <label><input type="checkbox" id="chkGruen" checked> 🟢 ≤ 260 €</label><br>
@@ -99,7 +136,6 @@ function colorForPrice(p, keinPreis) {
   return "red";
 }
 
-// Geo-Cache
 const geoCache = JSON.parse(localStorage.getItem("geoCachePellets_EU") || "{}");
 async function geocode(q) {
   if (geoCache[q] && geoCache[q].country_code) {
@@ -133,7 +169,6 @@ const blauesDreieck = L.divIcon({
   iconAnchor: [12,22],
   popupAnchor: [0,-20]
 });
-
 const lilaDreieck = L.divIcon({
   className: "custom-triangle-purple",
   html: `<svg width="24" height="24" viewBox="0 0 24 24">
@@ -143,7 +178,6 @@ const lilaDreieck = L.divIcon({
   popupAnchor: [0,-20]
 });
 
-// Google Sheets
 const sheetUrlFirmen = "https://docs.google.com/spreadsheets/d/1f1oD1TlYWPRbD12d05yIGkqmXVygVt3ZHLk9U0bKoTs/export?format=csv";
 const sheetUrlKunden = "https://docs.google.com/spreadsheets/d/1DaiLyZbhJkdSQ1PHbJQmguIrDnGrrhiAVgJC4PJO8vA/export?format=csv&gid=0";
 
@@ -336,19 +370,41 @@ async function buildMap(){
   updateLayers();
 }
 
-// helper: alle ausgewählten Länder holen
+// liest alle angehakten Länder aus dem Dropdown
 function getSelectedCountries() {
-  const sel = document.getElementById("countryFilter");
-  const arr = Array.from(sel.selectedOptions).map(o => o.value);
-  // Wenn "all" dabei ist oder gar nichts gewählt wurde -> keine Länder-Einschränkung
-  if (arr.length === 0 || arr.includes("all")) return ["all"];
-  return arr;
+  const chks = document.querySelectorAll(".countryChk");
+  const selected = [];
+  chks.forEach(ch => {
+    if (ch.checked) selected.push(ch.value);
+  });
+  // wenn "all" angehakt ist oder nichts -> ["all"]
+  if (selected.length === 0 || selected.includes("all")) return ["all"];
+  return selected;
+}
+
+function updateCountryButtonLabel() {
+  const selected = getSelectedCountries();
+  const btn = document.getElementById("countryDropdownBtn");
+  if (selected.length === 1 && selected[0] === "all") {
+    btn.textContent = "Alle Länder";
+  } else {
+    // kleine Labels
+    const names = {
+      de: "DE",
+      at: "AT",
+      pl: "PL",
+      cz: "CZ",
+      fr: "FR"
+    };
+    btn.textContent = selected.map(c => names[c] || c).join(", ");
+  }
 }
 
 function updateLayers(){
   alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
 
-  const selectedCountries = getSelectedCountries(); // z.B. ["de","at"] oder ["all"]
+  const selectedCountries = getSelectedCountries();
+  const noCountryFilter = selectedCountries.length === 1 && selectedCountries[0] === "all";
 
   const en         = document.getElementById("chkEnPlus").checked;
   const din        = document.getElementById("chkDINplus").checked;
@@ -365,8 +421,6 @@ function updateLayers(){
   const wantFireflies = document.getElementById("chkSackFireflies").checked;
   const want15kg      = document.getElementById("chkSack15kg").checked;
   const useSack       = (wantFireflies || want15kg);
-
-  const noCountryFilter = selectedCountries.length === 1 && selectedCountries[0] === "all";
 
   for(const m of alleMarker){
     // Kunden
@@ -419,7 +473,7 @@ function updateLayers(){
     if(isGrau && grau) sichtbar = true;
     if(!sichtbar) continue;
 
-    // Länderfilter (Mehrfachauswahl)
+    // Länderfilter
     if (!noCountryFilter) {
       if (!m.country_code || !selectedCountries.includes(m.country_code)) continue;
     }
@@ -480,13 +534,38 @@ async function showRoute(a,b){
   } else alert("Keine Route gefunden!");
 }
 
-// auf Änderungen hören
+// globale Change-Listener
 document.addEventListener("change", e => {
-  if (
-    (e.target && e.target.matches('input[type="checkbox"]')) ||
-    (e.target && e.target.id === "countryFilter")
-  ) {
+  if (e.target && e.target.matches('input[type="checkbox"]')) {
+    // wenn es eine der Länder-Checkboxen ist:
+    if (e.target.classList.contains("countryChk")) {
+      // wenn "Alle" angeklickt wird -> alle anderen aus
+      if (e.target.value === "all" && e.target.checked) {
+        document.querySelectorAll(".countryChk").forEach(ch => {
+          if (ch.value !== "all") ch.checked = false;
+        });
+      } else if (e.target.value !== "all" && e.target.checked) {
+        // wenn ein Land angehakt wird -> "Alle" aus
+        const allChk = document.querySelector('.countryChk[value="all"]');
+        allChk.checked = false;
+      }
+      updateCountryButtonLabel();
+    }
     updateLayers();
+  }
+});
+
+// dropdown auf/zu
+document.getElementById("countryDropdownBtn").addEventListener("click", () => {
+  const menu = document.getElementById("countryDropdownMenu");
+  menu.style.display = (menu.style.display === "block") ? "none" : "block";
+});
+
+// außerhalb klicken -> zu
+document.addEventListener("click", (e) => {
+  const dd = document.getElementById("countryDropdown");
+  if (!dd.contains(e.target)) {
+    document.getElementById("countryDropdownMenu").style.display = "none";
   }
 });
 
