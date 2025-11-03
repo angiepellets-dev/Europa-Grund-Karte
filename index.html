@@ -9,7 +9,6 @@
   <style>
     html,body{height:100%;margin:0}
     #map{width:100%;height:100%}
-
     .legend, .cert-box {
       position:absolute;z-index:1000;background:#fff;padding:8px 10px;
       border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);
@@ -17,12 +16,10 @@
     }
     .legend{bottom:12px;right:12px}
     .cert-box{bottom:12px;left:12px;}
-
     .cert-box input[type="checkbox"],
     .legend input[type="checkbox"]{
       width:14px;height:14px;margin-right:5px;vertical-align:middle;
     }
-
     .search-box{
       position:absolute;top:12px;right:12px;z-index:1000;
       background:#fff;padding:8px 10px;border-radius:6px;
@@ -95,7 +92,11 @@ function colorForPrice(p, keinPreis) {
 // Geo-Cache inkl. Land
 const geoCache = JSON.parse(localStorage.getItem("geoCachePellets_EU") || "{}");
 async function geocode(q) {
-  if (geoCache[q]) return geoCache[q];
+  // alter Cache-Eintrag ohne country_code? -> neu holen
+  if (geoCache[q] && geoCache[q].country_code) {
+    return geoCache[q];
+  }
+
   const r = await fetch(
     `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(q)}&limit=1&accept-language=de`
   );
@@ -168,7 +169,6 @@ function parseFirmenWithHeader(rows){
 }
 
 async function ladeDaten() {
-  // Firmen
   const firmenPromise = new Promise((resolve) => {
     Papa.parse(sheetUrlFirmen, {
       download: true, header: true,
@@ -205,7 +205,6 @@ async function ladeDaten() {
     });
   });
 
-  // Kunden
   const kundenPromise = new Promise((resolve)=>{
     Papa.parse(sheetUrlKunden, {
       download:true, header:true,
@@ -270,7 +269,7 @@ async function buildMap(){
 
   // Werke
   for(const w of werke){
-    const c=geoCache[w.ort]||await geocode(w.ort);
+    const c=geoCache[w.ort] && geoCache[w.ort].country_code ? geoCache[w.ort] : await geocode(w.ort);
     if(!c)continue;
 
     const farbeInit = sackFilterAktiv() ? w.farbeSack : w.farbeWerk;
@@ -307,7 +306,7 @@ async function buildMap(){
 
   // Kunden
   for(const k of kunden){
-    const c=geoCache[k.ort]||await geocode(k.ort);
+    const c=geoCache[k.ort] && geoCache[k.ort].country_code ? geoCache[k.ort] : await geocode(k.ort);
     if(!c)continue;
 
     const isSackOnly = (k.sackware === "ja") && (k.lose !== "ja");
@@ -406,6 +405,7 @@ function updateLayers(){
 
     // Länderfilter
     if (selectedCountry !== "all") {
+      // wenn kein Land am Marker -> ausblenden
       if (!m.country_code || m.country_code !== selectedCountry) continue;
     }
 
