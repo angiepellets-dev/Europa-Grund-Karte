@@ -113,7 +113,6 @@ let werke = [], kunden = [], alleMarker = [], selectedPoints = [], routeLine = n
 // --- Firmen: robustes Parsing (Header-Name bevorzugt, sonst Fallback nach Index) ---
 function parseFirmenWithHeader(rows){
   const lc = (s)=>String(s||"").toLowerCase();
-
   const keys = Object.keys(rows[0]||{});
   const findKey = (cands) => keys.find(k => cands.includes(lc(k)));
 
@@ -121,9 +120,9 @@ function parseFirmenWithHeader(rows){
   const ortKey  = findKey(["ort","stadt","location","standort","adresse"]) || keys[1];
 
   // Werkspreis (typ. Spalte C)
-  const preisKey = findKey(["preis","price","€/t","euro","euro_t","werkspreis","c"]);
+  const preisKey = findKey(["preis","price","€/t","euro","euro_t","werkspreis"]);
   // Sackware-Preis (typ. Spalte E)
-  const sackPreisKey = findKey(["preis_sack","preis sack","sackpreis","bag_price","sackwarepreis","sackware preis","e"]);
+  const sackPreisKey = findKey(["preis_sack","preis sack","sackpreis","bag_price","sackwarepreis","sackware preis","sackwarenpreis","preis_e"]);
 
   const zertKey = findKey(["zertifikate","zertifikat","zert","cert"]);
   const sackKey = findKey(["sackware","sack","bag","bagged"]);
@@ -220,12 +219,14 @@ function sackFilterAktiv(){
   return (wantFireflies || want15kg);
 }
 
-function preisAnzeigeUndFarbeFor(w){
+// ---------- Tooltip-HTML immer frisch berechnen ----------
+function tooltipHtmlFromMarker(m){
   const useSack = sackFilterAktiv();
-  const preis = useSack ? w.preisSack : w.preis;
-  const keinPreis = useSack ? w.keinPreisSack : w.keinPreisWerk;
-  const farbe = useSack ? w.farbeSack : w.farbeWerk;
-  return {preis, keinPreis, farbe, useSack};
+  const preisNow = useSack && isFinite(m.preisSack) && m.preisSack > 0 ? m.preisSack : m.preis;
+  const preisTxt = isFinite(preisNow) && preisNow > 0 ? `${preisNow.toFixed(2)} €` : "–";
+  const zertInfo = m.zert ? `<br><b>Zertifikat:</b> ${m.zert}` : "";
+  const sackInfo = m.sack ? `<br><b>Sackware:</b> ${m.sack}` : "";
+  return `<b>${m.firma}</b><br>${m.ort}<br>${preisTxt}${zertInfo}${sackInfo}`;
 }
 
 async function buildMap(){
@@ -236,17 +237,20 @@ async function buildMap(){
     const c=geoCache[w.ort]||await geocode(w.ort);
     if(!c)continue;
 
-    const zertInfo = w.zert ? `<br><b>Zertifikat:</b> ${w.zert}` : "";
-    const sackInfo = w.sack ? `<br><b>Sackware:</b> ${w.sack}` : "";
+    // initiale Farbe (Preisquelle kann sich später ändern)
+    const farbeInit = sackFilterAktiv() ? w.farbeSack : w.farbeWerk;
 
-    // initiale Preis-/Farbwahl (ändert sich dynamisch in updateLayers)
-    const {preis, farbe} = preisAnzeigeUndFarbeFor(w);
-
-    const m=L.circleMarker([c.lat,c.lon],{radius:8,color:farbe,fillColor:farbe,fillOpacity:0.85})
-      .bindTooltip(() => {
-        const {preis: pNow} = preisAnzeigeUndFarbeFor(w);
-        return `<b>${w.firma}</b><br>${w.ort}<br>${(pNow||0).toFixed(2)} €${zertInfo}${sackInfo}`;
-      },{sticky:true})
+    const m=L.circleMarker([c.lat,c.lon],{radius:8,color:farbeInit,fillColor:farbeInit,fillOpacity:0.85})
+      .bindTooltip("", {sticky:true})
+      .on("tooltipopen", () => {
+        // Tooltip-Inhalt jedes Mal frisch berechnen
+        m.getTooltip().setContent( tooltipHtmlFromMarker({
+          firma:w.firma, ort:w.ort,
+          preis:w.preis, preisSack:w.preisSack,
+          zert:(w.zert||""),
+          sack:(w.sack||"")
+        }));
+      })
       .on("click",()=>handleMarkerClick(w.firma,c));
 
     alleMarker.push({
@@ -277,7 +281,7 @@ async function buildMap(){
   }
 
   if(bounds.isValid())map.fitBounds(bounds.pad(0.15));
-  updateLayers(); // initialer Render mit dynamischer Farb-/Tooltip-Logik
+  updateLayers(); // initialer Render
 }
 
 function updateLayers(){
@@ -342,6 +346,12 @@ function updateLayers(){
 
     // Marker-Farbe live aktualisieren
     m.marker.setStyle({color:aktiveFarbe, fillColor:aktiveFarbe});
+
+    // Tooltip-Inhalt beim Redraw auffrischen (falls bereits erzeugt)
+    if (m.marker.getTooltip()) {
+      m.marker.getTooltip().setContent( tooltipHtmlFromMarker(m) );
+    }
+
     map.addLayer(m.marker);
   }
 }
@@ -368,7 +378,7 @@ async function showRoute(a,b){
     const durationStr = hours>0?`${hours}h ${minutes}min`:`${minutes}min`;
     const coords = route.geometry.coordinates.map(c=>[c[1],c[0]]);
 
-    // Aktuellen Preis (Werk vs. Sackware) für die gewählte Firma verwenden
+    // Aktuellen Preis (Werk vs. Sackware) verwenden
     const useSack = sackFilterAktiv();
     const firmeneintrag = werke.find(w => w.firma === a.label || w.firma === b.label);
     const firmenPreis = firmeneintrag
@@ -406,9 +416,8 @@ document.getElementById("searchInput").addEventListener("keydown", e => {
     const query = e.target.value.toLowerCase().trim();
     if(!query) return;
     const treffer = alleMarker.find(m =>
-      m.marker.getTooltip && (typeof m.marker.getTooltip().getContent === "function"
-        ? String(m.marker.getTooltip().getContent()).toLowerCase().includes(query)
-        : String(m.marker.getTooltip().getContent).toLowerCase().includes(query))
+      m.marker.getTooltip && m.marker.getTooltip().getContent &&
+      String(m.marker.getTooltip().getContent()).toLowerCase().includes(query)
     );
     if(treffer){
       const latlng = treffer.marker.getLatLng();
