@@ -112,35 +112,31 @@ let werke = [], kunden = [], alleMarker = [], selectedPoints = [], routeLine = n
 
 // --- Firmen: robustes Parsing (Header-Name bevorzugt, sonst Fallback nach Index) ---
 function parseFirmenWithHeader(rows){
-  const lc = (s)=>s.toLowerCase();
+  const lc = (s)=>String(s||"").toLowerCase();
 
-  const nameKey = Object.keys(rows[0]).find(k=>["firma","name","werk"].includes(lc(k))) || Object.keys(rows[0])[0];
-  const ortKey  = Object.keys(rows[0]).find(k=>["ort","stadt","location","standort","adresse"].includes(lc(k))) || Object.keys(rows[0])[1];
+  const keys = Object.keys(rows[0]||{});
+  const findKey = (cands) => keys.find(k => cands.includes(lc(k)));
 
-  // Werkspreis (Spalte C typ.)
-  const preisKey = Object.keys(rows[0]).find(k=>{
-    const x = lc(k);
-    return ["preis","price","€/t","euro","euro_t","werkpreis"].includes(x) || /preis.*c/.test(x);
-  });
+  const nameKey = findKey(["firma","name","werk"]) || keys[0];
+  const ortKey  = findKey(["ort","stadt","location","standort","adresse"]) || keys[1];
 
-  // Sackware-Preis (Spalte E typ.)
-  const sackPreisKey = Object.keys(rows[0]).find(k=>{
-    const x = lc(k);
-    return ["preis_sack","preis sack","sackpreis","bag_price","sackwarepreis","sackware preis","preis_e"].includes(x) || /preis.*e/.test(x);
-  });
+  // Werkspreis (typ. Spalte C)
+  const preisKey = findKey(["preis","price","€/t","euro","euro_t","werkspreis","c"]);
+  // Sackware-Preis (typ. Spalte E)
+  const sackPreisKey = findKey(["preis_sack","preis sack","sackpreis","bag_price","sackwarepreis","sackware preis","e"]);
 
-  const zertKey = Object.keys(rows[0]).find(k=>["zertifikate","zertifikat","zert","cert"].includes(lc(k)));
-  const sackKey = Object.keys(rows[0]).find(k=>["sackware","sack","bag","bagged"].includes(lc(k)));
+  const zertKey = findKey(["zertifikate","zertifikat","zert","cert"]);
+  const sackKey = findKey(["sackware","sack","bag","bagged"]);
 
   return rows
-    .filter(x => (x?.[nameKey]||"").trim() && (x?.[ortKey]||"").trim())
+    .filter(x => (x?.[nameKey]||"").toString().trim() && (x?.[ortKey]||"").toString().trim())
     .map(x => ({
-      firma: (x[nameKey]||"").trim(),
-      ort: (x[ortKey]||"").trim(),
+      firma: (x[nameKey]||"").toString().trim(),
+      ort: (x[ortKey]||"").toString().trim(),
       preis: parseFloat(String(x?.[preisKey] ?? "0").replace(",", ".")),
       preisSack: parseFloat(String(x?.[sackPreisKey] ?? "0").replace(",", ".")),
-      zert: (x?.[zertKey]||"").trim(),
-      sack: (x?.[sackKey]||"").trim()
+      zert: (x?.[zertKey]||"").toString().trim(),
+      sack: (x?.[sackKey]||"").toString().trim()
     }));
 }
 
@@ -152,7 +148,7 @@ async function ladeDaten() {
       complete: (r) => {
         try{
           let daten = [];
-          if (r.data && r.data.length && Object.keys(r.data[0]).length > 1) {
+          if (r.data && r.data.length && Object.keys(r.data[0]||{}).length > 1) {
             daten = parseFirmenWithHeader(r.data);
           }
           // Fallback, falls Header nicht passt
@@ -164,8 +160,8 @@ async function ladeDaten() {
                 const daten2 = rows.map(row => ({
                   firma: (row[0]||"").trim(),      // A
                   ort:   (row[1]||"").trim(),      // B
-                  preis: parseFloat(String(row[2]||"0").replace(",", ".")), // C
-                  preisSack: parseFloat(String(row[4]||"0").replace(",", ".")), // E
+                  preis: parseFloat(String(row[2]||"0").replace(",", ".")),      // C
+                  preisSack: parseFloat(String(row[4]||"0").replace(",", ".")),  // E
                   zert:  (row[6]||"").trim(),      // G
                   sack:  (row[7]||"").trim()       // H (sackware)
                 }));
@@ -310,7 +306,7 @@ function updateLayers(){
       continue;
     }
 
-    // Sackware-Filter (Spalte H: "sackware") → wenn einer gesetzt ist, müssen passende Einträge vorhanden sein
+    // Sackware-Filter (Spalte H: "sackware")
     if (useSack) {
       const sNorm = (m.sack||"").toLowerCase().replace(/\s+/g,' ').trim();
       const hasFireflies = sNorm.includes("fireflies");
@@ -328,7 +324,7 @@ function updateLayers(){
     if(!z && ohne) zertOK = true;
     if(!zertOK) continue;
 
-    // Preisfarbe nach aktueller Preisquelle (Werk vs. Sackware)
+    // Farbe nach aktueller Preisquelle (Werk vs. Sackware)
     const aktiveFarbe = useSack ? m.farbeSack : m.farbeWerk;
 
     // Legendenfilter
@@ -346,8 +342,6 @@ function updateLayers(){
 
     // Marker-Farbe live aktualisieren
     m.marker.setStyle({color:aktiveFarbe, fillColor:aktiveFarbe});
-
-    // Tooltip wird bei Öffnung dynamisch generiert (siehe buildMap bindTooltip-Callback)
     map.addLayer(m.marker);
   }
 }
