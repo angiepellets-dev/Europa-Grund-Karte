@@ -9,17 +9,20 @@
   <style>
     html,body{height:100%;margin:0}
     #map{width:100%;height:100%}
+
     .legend, .cert-box {
       position:absolute;z-index:1000;background:#fff;padding:8px 10px;
       border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);
       font:14px/1.3 system-ui,Arial,sans-serif;
     }
-    .legend{bottom:12px;right:12px}
+    .legend{bottom:12px;right:12px;max-width:180px}
     .cert-box{bottom:12px;left:12px;}
+
     .cert-box input[type="checkbox"],
     .legend input[type="checkbox"]{
       width:14px;height:14px;margin-right:5px;vertical-align:middle;
     }
+
     .search-box{
       position:absolute;top:12px;right:12px;z-index:1000;
       background:#fff;padding:8px 10px;border-radius:6px;
@@ -30,6 +33,12 @@
       width:220px;padding:6px 8px;border:1px solid #ccc;border-radius:4px;outline:none;
     }
     .cert-box hr{border:none;height:1px;background:#eee;margin:6px 0}
+
+    /* damit das multiple-Select nicht zu hoch wird */
+    #countryFilter {
+      width: 100%;
+      min-height: 110px;
+    }
   </style>
 </head>
 <body>
@@ -55,9 +64,10 @@
 
 <!-- Farben + Länderfilter -->
 <div class="legend">
-  <b>Land filtern</b><br>
-  <select id="countryFilter">
-    <option value="all">Alle</option>
+  <b>Land / Länder filtern</b><br>
+  <!-- multiple + size = Mehrfachauswahl -->
+  <select id="countryFilter" multiple size="6">
+    <option value="all" selected>Alle</option>
     <option value="de">Deutschland</option>
     <option value="at">Österreich</option>
     <option value="pl">Polen</option>
@@ -89,14 +99,12 @@ function colorForPrice(p, keinPreis) {
   return "red";
 }
 
-// Geo-Cache inkl. Land
+// Geo-Cache
 const geoCache = JSON.parse(localStorage.getItem("geoCachePellets_EU") || "{}");
 async function geocode(q) {
-  // alter Cache-Eintrag ohne country_code? -> neu holen
   if (geoCache[q] && geoCache[q].country_code) {
     return geoCache[q];
   }
-
   const r = await fetch(
     `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(q)}&limit=1&accept-language=de`
   );
@@ -141,7 +149,6 @@ const sheetUrlKunden = "https://docs.google.com/spreadsheets/d/1DaiLyZbhJkdSQ1PH
 
 let werke = [], kunden = [], alleMarker = [], selectedPoints = [], routeLine = null;
 
-// --- Firmen: robustes Parsing ---
 function parseFirmenWithHeader(rows){
   const lc = (s)=>String(s||"").toLowerCase();
   const keys = Object.keys(rows[0]||{});
@@ -329,10 +336,19 @@ async function buildMap(){
   updateLayers();
 }
 
+// helper: alle ausgewählten Länder holen
+function getSelectedCountries() {
+  const sel = document.getElementById("countryFilter");
+  const arr = Array.from(sel.selectedOptions).map(o => o.value);
+  // Wenn "all" dabei ist oder gar nichts gewählt wurde -> keine Länder-Einschränkung
+  if (arr.length === 0 || arr.includes("all")) return ["all"];
+  return arr;
+}
+
 function updateLayers(){
   alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
 
-  const selectedCountry = document.getElementById("countryFilter").value;
+  const selectedCountries = getSelectedCountries(); // z.B. ["de","at"] oder ["all"]
 
   const en         = document.getElementById("chkEnPlus").checked;
   const din        = document.getElementById("chkDINplus").checked;
@@ -350,23 +366,23 @@ function updateLayers(){
   const want15kg      = document.getElementById("chkSack15kg").checked;
   const useSack       = (wantFireflies || want15kg);
 
+  const noCountryFilter = selectedCountries.length === 1 && selectedCountries[0] === "all";
+
   for(const m of alleMarker){
     // Kunden
     if(m.type === "kunde"){
-      if (
-        kundenFlag &&
-        (selectedCountry === "all" || (m.country_code && m.country_code === selectedCountry))
-      ) {
-        map.addLayer(m.marker);
+      if (kundenFlag) {
+        if (noCountryFilter || (m.country_code && selectedCountries.includes(m.country_code))) {
+          map.addLayer(m.marker);
+        }
       }
       continue;
     }
     if(m.type === "sackkunde"){
-      if (
-        sackKundenFlag &&
-        (selectedCountry === "all" || (m.country_code && m.country_code === selectedCountry))
-      ) {
-        map.addLayer(m.marker);
+      if (sackKundenFlag) {
+        if (noCountryFilter || (m.country_code && selectedCountries.includes(m.country_code))) {
+          map.addLayer(m.marker);
+        }
       }
       continue;
     }
@@ -403,10 +419,9 @@ function updateLayers(){
     if(isGrau && grau) sichtbar = true;
     if(!sichtbar) continue;
 
-    // Länderfilter
-    if (selectedCountry !== "all") {
-      // wenn kein Land am Marker -> ausblenden
-      if (!m.country_code || m.country_code !== selectedCountry) continue;
+    // Länderfilter (Mehrfachauswahl)
+    if (!noCountryFilter) {
+      if (!m.country_code || !selectedCountries.includes(m.country_code)) continue;
     }
 
     m.marker.setStyle({color:aktiveFarbe, fillColor:aktiveFarbe});
@@ -465,7 +480,7 @@ async function showRoute(a,b){
   } else alert("Keine Route gefunden!");
 }
 
-// auf Änderungen hören (Checkboxen + Country)
+// auf Änderungen hören
 document.addEventListener("change", e => {
   if (
     (e.target && e.target.matches('input[type="checkbox"]')) ||
