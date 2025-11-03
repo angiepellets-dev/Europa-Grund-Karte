@@ -10,7 +10,7 @@
     html,body{height:100%;margin:0}
     #map{width:100%;height:100%}
 
-    .legend, .cert-box, .sack-box {
+    .legend, .cert-box {
       position:absolute;z-index:1000;background:#fff;padding:8px 10px;
       border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);
       font:14px/1.3 system-ui,Arial,sans-serif;
@@ -18,15 +18,10 @@
 
     .legend{bottom:12px;right:12px}
     .cert-box{bottom:12px;left:12px;}
-    .sack-box{bottom:110px;left:12px;} /* über den Zertifikaten */
 
     .cert-box input[type="checkbox"],
-    .legend input[type="checkbox"],
-    .sack-box input[type="checkbox"] {
-      width:14px;
-      height:14px;
-      margin-right:5px;
-      vertical-align:middle;
+    .legend input[type="checkbox"]{
+      width:14px;height:14px;margin-right:5px;vertical-align:middle;
     }
 
     .search-box{
@@ -35,11 +30,10 @@
       box-shadow:0 2px 8px rgba(0,0,0,.15);
       font:14px system-ui,Arial,sans-serif
     }
-
     .search-box input{
-      width:220px;padding:6px 8px;border:1px solid #ccc;
-      border-radius:4px;outline:none;
+      width:220px;padding:6px 8px;border:1px solid #ccc;border-radius:4px;outline:none;
     }
+    .cert-box hr{border:none;height:1px;background:#eee;margin:6px 0}
   </style>
 </head>
 <body>
@@ -50,19 +44,16 @@
   🔍 <input type="text" id="searchInput" placeholder="Firma, Kunde oder Ort suchen…" />
 </div>
 
-<!-- Sackware-Filter (links unten, über Zertifikaten) -->
-<div class="sack-box">
-  <b>Sackware</b><br>
-  <label><input type="checkbox" id="chkFireflies15"> FireFlies 15kg</label>
-</div>
-
-<!-- Zertifikate-Filter (links unten) -->
+<!-- Zertifikate + Sackware -->
 <div class="cert-box">
-  <b>Zertifikate</b><br>
+  <b>Zertifikate & Sackware</b><br>
   <label><input type="checkbox" id="chkEnPlus" checked> EnPlus</label><br>
   <label><input type="checkbox" id="chkDINplus" checked> DINplus</label><br>
   <label><input type="checkbox" id="chkSURE" checked> SURE</label><br>
   <label><input type="checkbox" id="chkOhneZert" checked> Kein Zertifikat</label>
+  <hr>
+  <label><input type="checkbox" id="chkSackFireflies"> FireFlies</label><br>
+  <label><input type="checkbox" id="chkSack15kg"> 15 kg</label>
 </div>
 
 <!-- Farb-Filter (rechts unten) -->
@@ -123,14 +114,14 @@ async function ladeDaten() {
     Papa.parse(sheetUrlFirmen, {
       download: true, header: false,
       complete: (r) => {
-        // A: Firma | B: Ort | C: Preis | ... | G: Zertifikate | H: Sackware
-        const rows = r.data.filter(row => row.length >= 8 && row[0] && row[1]); // >= 8 für Spalte H
+        // A: Firma | B: Ort | C: Preis | ... | G: Zertifikate | H: Sackware (z.B. "FireFlies 15 kg")
+        const rows = r.data.filter(row => row.length >= 8 && row[0] && row[1]);
         const daten = rows.map(row => ({
           firma: row[0].trim(),
           ort: row[1].trim(),
           preis: parseFloat((row[2] || "0").replace(",", ".")),
           zert: (row[6] || "").trim(),
-          sack: (row[7] || "").trim() // Spalte H
+          sack: (row[7] || "").trim()
         }));
         const gültige = daten.filter(w => !isNaN(w.preis) && w.preis > 0);
         const avg = gültige.length ? (gültige.reduce((a,b)=>a+b.preis,0)/gültige.length) : 0;
@@ -167,14 +158,11 @@ async function buildMap(){
     if(!c)continue;
     const f=colorForPrice(w.preis,w.keinPreis);
 
-    const zertInfo = w.zert ? `<br><b>Zertifikat:</b> ${w.zert}` : ""; // kein "keine Sackware"
-    const sackInfo = w.sack ? `<br><b>Sackware:</b> ${w.sack}` : ""; // nur anzeigen, wenn vorhanden
+    const zertInfo = w.zert ? `<br><b>Zertifikat:</b> ${w.zert}` : "";
+    const sackInfo = w.sack ? `<br><b>Sackware:</b> ${w.sack}` : "";
 
     const m=L.circleMarker([c.lat,c.lon],{radius:8,color:f,fillColor:f,fillOpacity:0.85})
-      .bindTooltip(
-        `<b>${w.firma}</b><br>${w.ort}<br>${w.preis.toFixed(2)} €${zertInfo}${sackInfo}`,
-        {sticky:true}
-      )
+      .bindTooltip(`<b>${w.firma}</b><br>${w.ort}<br>${w.preis.toFixed(2)} €${zertInfo}${sackInfo}`,{sticky:true})
       .on("click",()=>handleMarkerClick(w.firma,c));
 
     alleMarker.push({
@@ -215,8 +203,9 @@ function updateLayers(){
   const grau = chkGrau.checked;
   const kundenFlag = chkKunden.checked;
 
-  const sackFireflies15 = document.getElementById("chkFireflies15").checked;
-  const sackTarget = "fireflies 15kg"; // Vergleich in Kleinbuchstaben
+  // Neue Sackware-Filter
+  const wantFireflies = document.getElementById("chkSackFireflies").checked;
+  const want15kg = document.getElementById("chkSack15kg").checked;
 
   for(const m of alleMarker){
     if(m.type === "kunde"){
@@ -224,13 +213,16 @@ function updateLayers(){
       continue;
     }
 
-    // Sackware-Filter (nur anwenden, wenn Checkbox aktiv)
-    if (sackFireflies15) {
-      const s = (m.sack||"").toLowerCase().replace(/\s+/g,' ').trim();
-      if (s !== sackTarget) continue;
+    // Sackware-Filter anwenden NUR wenn mind. eine Checkbox aktiv ist
+    if (wantFireflies || want15kg) {
+      const sNorm = (m.sack||"").toLowerCase().replace(/\s+/g,' ').trim();
+      const hasFireflies = sNorm.includes("fireflies");
+      const has15kg = sNorm.includes("15 kg") || sNorm.includes("15kg");
+      if (wantFireflies && !hasFireflies) continue;
+      if (want15kg && !has15kg) continue;
     }
 
-    // Zertifikate filtern
+    // Zertifikate
     const z = m.zert || "";
     let zertOK = false;
     if(z.includes("enplus") && en) zertOK = true;
@@ -239,7 +231,7 @@ function updateLayers(){
     if(!z && ohne) zertOK = true;
     if(!zertOK) continue;
 
-    // Preisfarben filtern
+    // Preisfarben
     if(m.farbe === "green" && gruen) { map.addLayer(m.marker); continue; }
     if(m.farbe === "orange" && orange) { map.addLayer(m.marker); continue; }
     if(m.farbe === "red" && rot) { map.addLayer(m.marker); continue; }
@@ -289,7 +281,7 @@ async function showRoute(a,b){
   } else alert("Keine Route gefunden!");
 }
 
-// Checkbox reagiert sofort
+// Checkboxen reagieren sofort
 document.addEventListener("change", e => {
   if(e.target.type === "checkbox") updateLayers();
 });
