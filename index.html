@@ -56,8 +56,17 @@
   <label><input type="checkbox" id="chkSack15kg"> 15 kg</label>
 </div>
 
-<!-- Farben -->
+<!-- Farben + Länderfilter -->
 <div class="legend">
+  <b>Land filtern</b><br>
+  <select id="countryFilter">
+    <option value="all">Alle</option>
+    <option value="de">Deutschland</option>
+    <option value="pl">Polen</option>
+    <option value="cz">Tschechien</option>
+    <option value="fr">Frankreich</option>
+  </select>
+  <br><br>
   <b>Filter Farben</b><br>
   <label><input type="checkbox" id="chkGruen" checked> 🟢 ≤ 260 €</label><br>
   <label><input type="checkbox" id="chkOrange" checked> 🟠 260–285 €</label><br>
@@ -82,15 +91,25 @@ function colorForPrice(p, keinPreis) {
   return "red";
 }
 
+// Geo-Cache inkl. Land
 const geoCache = JSON.parse(localStorage.getItem("geoCachePellets_EU") || "{}");
 async function geocode(q) {
   if (geoCache[q]) return geoCache[q];
-  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1&accept-language=de`);
+  const r = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(q)}&limit=1&accept-language=de`
+  );
   const d = await r.json();
   if (d.length) {
-    geoCache[q] = { lat: +d[0].lat, lon: +d[0].lon };
+    const item = d[0];
+    const obj = {
+      lat: +item.lat,
+      lon: +item.lon,
+      country: item.address && item.address.country ? item.address.country : "",
+      country_code: item.address && item.address.country_code ? item.address.country_code.toLowerCase() : ""
+    };
+    geoCache[q] = obj;
     localStorage.setItem("geoCachePellets_EU", JSON.stringify(geoCache));
-    return geoCache[q];
+    return obj;
   }
   console.warn("Kein Geocode-Treffer:", q);
   return null;
@@ -105,7 +124,6 @@ const blauesDreieck = L.divIcon({
   popupAnchor: [0,-20]
 });
 
-// lila Dreieck für Sackwaren-Kunden
 const lilaDreieck = L.divIcon({
   className: "custom-triangle-purple",
   html: `<svg width="24" height="24" viewBox="0 0 24 24">
@@ -280,7 +298,8 @@ async function buildMap(){
       farbeWerk:w.farbeWerk,
       farbeSack:w.farbeSack,
       zert:(w.zert||"").toLowerCase(),
-      sack:(w.sack||"")
+      sack:(w.sack||""),
+      country_code: (c.country_code || "")
     });
     bounds.extend([c.lat,c.lon]);
   }
@@ -290,12 +309,7 @@ async function buildMap(){
     const c=geoCache[k.ort]||await geocode(k.ort);
     if(!c)continue;
 
-    // HIER ist die Logik:
-    // sackware = ja, lose != ja  --> lila
-    // sackware = ja, lose = ja   --> normal blau
-    // sonst --> normal blau (wie vorher)
     const isSackOnly = (k.sackware === "ja") && (k.lose !== "ja");
-
     const iconToUse = isSackOnly ? lilaDreieck : blauesDreieck;
 
     const m=L.marker([c.lat,c.lon],{icon:iconToUse})
@@ -304,7 +318,8 @@ async function buildMap(){
 
     alleMarker.push({
       type: isSackOnly ? "sackkunde" : "kunde",
-      marker:m
+      marker:m,
+      country_code: (c.country_code || "")
     });
 
     bounds.extend([c.lat,c.lon]);
@@ -315,7 +330,10 @@ async function buildMap(){
 }
 
 function updateLayers(){
+  // alles erstmal runter
   alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
+
+  const selectedCountry = document.getElementById("countryFilter").value;
 
   const en         = document.getElementById("chkEnPlus").checked;
   const din        = document.getElementById("chkDINplus").checked;
@@ -336,11 +354,21 @@ function updateLayers(){
   for(const m of alleMarker){
     // Kunden
     if(m.type === "kunde"){
-      if(kundenFlag) map.addLayer(m.marker);
+      if (
+        kundenFlag &&
+        (selectedCountry === "all" || (m.country_code && m.country_code === selectedCountry))
+      ) {
+        map.addLayer(m.marker);
+      }
       continue;
     }
     if(m.type === "sackkunde"){
-      if(sackKundenFlag) map.addLayer(m.marker);
+      if (
+        sackKundenFlag &&
+        (selectedCountry === "all" || (m.country_code && m.country_code === selectedCountry))
+      ) {
+        map.addLayer(m.marker);
+      }
       continue;
     }
 
@@ -375,6 +403,11 @@ function updateLayers(){
     if(isRot && rot) sichtbar = true;
     if(isGrau && grau) sichtbar = true;
     if(!sichtbar) continue;
+
+    // Länderfilter
+    if (selectedCountry !== "all") {
+      if (!m.country_code || m.country_code !== selectedCountry) continue;
+    }
 
     m.marker.setStyle({color:aktiveFarbe, fillColor:aktiveFarbe});
     if (m.marker.getTooltip()) {
@@ -432,8 +465,14 @@ async function showRoute(a,b){
   } else alert("Keine Route gefunden!");
 }
 
+// auf Änderungen hören (Checkboxen + Country)
 document.addEventListener("change", e => {
-  if(e.target && e.target.matches('input[type="checkbox"]')) updateLayers();
+  if (
+    (e.target && e.target.matches('input[type="checkbox"]')) ||
+    (e.target && e.target.id === "countryFilter")
+  ) {
+    updateLayers();
+  }
 });
 
 document.getElementById("searchInput").addEventListener("keydown", e => {
