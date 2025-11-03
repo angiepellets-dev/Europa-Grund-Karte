@@ -62,6 +62,7 @@
   <select id="countryFilter">
     <option value="all">Alle</option>
     <option value="de">Deutschland</option>
+    <option value="at">Österreich</option>
     <option value="pl">Polen</option>
     <option value="cz">Tschechien</option>
     <option value="fr">Frankreich</option>
@@ -330,7 +331,6 @@ async function buildMap(){
 }
 
 function updateLayers(){
-  // alles erstmal runter
   alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
 
   const selectedCountry = document.getElementById("countryFilter").value;
