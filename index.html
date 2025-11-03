@@ -17,10 +17,12 @@
     }
     .legend{bottom:12px;right:12px}
     .cert-box{bottom:12px;left:12px;}
+
     .cert-box input[type="checkbox"],
     .legend input[type="checkbox"]{
       width:14px;height:14px;margin-right:5px;vertical-align:middle;
     }
+
     .search-box{
       position:absolute;top:12px;right:12px;z-index:1000;
       background:#fff;padding:8px 10px;border-radius:6px;
@@ -44,7 +46,7 @@
 <!-- Zertifikate + Sackware -->
 <div class="cert-box">
   <b>Zertifikate & Sackware</b><br>
-  <label><input type="checkbox" id="chkEnPlus" checked> ENplus</label><br>
+  <label><input type="checkbox" id="chkEnPlus" checked> EnPlus</label><br>
   <label><input type="checkbox" id="chkDINplus" checked> DINplus</label><br>
   <label><input type="checkbox" id="chkSURE" checked> SURE</label><br>
   <label><input type="checkbox" id="chkOhneZert" checked> Kein Zertifikat</label>
@@ -73,7 +75,7 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 
 function colorForPrice(p, keinPreis) {
   if (keinPreis) return "#9e9e9e";
-  if (!p || p <= 0 || isNaN(p)) return "#9e9e9e";
+  if (!p || p <= 0) return "#9e9e9e";
   if (p <= 260) return "green";
   if (p < 285) return "orange";
   return "red";
@@ -102,40 +104,70 @@ const blauesDreieck = L.divIcon({
   popupAnchor: [0,-20]
 });
 
-// Tabellen
+// Google Sheets
 const sheetUrlFirmen = "https://docs.google.com/spreadsheets/d/1f1oD1TlYWPRbD12d05yIGkqmXVygVt3ZHLk9U0bKoTs/export?format=csv";
 const sheetUrlKunden = "https://docs.google.com/spreadsheets/d/1DaiLyZbhJkdSQ1PHbJQmguIrDnGrrhiAVgJC4PJO8vA/export?format=csv&gid=0";
 
 let werke = [], kunden = [], alleMarker = [], selectedPoints = [], routeLine = null;
 
+// --- Firmen: robustes Parsing (Header-Name bevorzugt, sonst Fallback nach Index) ---
+function parseFirmenWithHeader(rows){
+  const nameKey = ["firma","name","werk"].find(k=>k in rows[0]) || Object.keys(rows[0])[0];
+  const ortKey  = ["ort","stadt","location","standort","adresse"].find(k=>k in rows[0]) || Object.keys(rows[0])[1];
+  const preisKey= ["preis","price","€/t","euro","euro_t"].find(k=>k in rows[0]);
+  const zertKey = ["zertifikate","zertifikat","zert","cert"].find(k=>k in rows[0]);
+  const sackKey = ["sackware","sack","bag","bagged"].find(k=>k in rows[0]);
+
+  return rows
+    .filter(x => (x[nameKey]||"").trim() && (x[ortKey]||"").trim())
+    .map(x => ({
+      firma: (x[nameKey]||"").trim(),
+      ort: (x[ortKey]||"").trim(),
+      preis: parseFloat(String(x[preisKey]||"0").replace(",", ".")),
+      zert: (x[zertKey]||"").trim(),
+      sack: (x[sackKey]||"").trim()
+    }));
+}
+
 async function ladeDaten() {
-  // Firmen: A=Firma, B=Ort, C=Preis, E=Sackware-Preis, G=Zert, H=Sackware-Text
+  // Firmen (erst header:true, Fallback header:false+Index)
   const firmenPromise = new Promise((resolve) => {
     Papa.parse(sheetUrlFirmen, {
-      download: true, header: false,
+      download: true, header: true,
       complete: (r) => {
-        const rows = r.data.filter(row => row.length >= 8 && row[0] && row[1]);
-        const daten = rows.map(row => ({
-          firma: (row[0]||"").trim(),         // A
-          ort:   (row[1]||"").trim(),         // B
-          preis: parseFloat(String(row[2]||"0").replace(",", ".")), // C
-          preisSack: parseFloat(String(row[4]||"0").replace(",", ".")), // E
-          zert:  (row[6]||"").trim(),         // G
-          sack:  (row[7]||"").trim()          // H
-        }));
-
-        // Normalize Preise
-        const gueltig = daten.filter(w => !isNaN(w.preis) && w.preis > 0);
-        const avg = gueltig.length ? gueltig.reduce((a,b)=>a+b.preis,0)/gueltig.length : 0;
-        resolve(daten.map(w=>{
-          if(isNaN(w.preis) || w.preis<=0){ w.preis=avg; w.keinPreis=true; } else w.keinPreis=false;
-          // Preis Sackware kann fehlen -> später fallback auf w.preis
-          return w;
-        }));
+        try{
+          let daten = [];
+          if (r.data && r.data.length && Object.keys(r.data[0]).length > 1) {
+            daten = parseFirmenWithHeader(r.data);
+          }
+          // Fallback, falls Header nicht passt
+          if (!daten.length) {
+            Papa.parse(sheetUrlFirmen, {
+              download: true, header: false,
+              complete: (r2) => {
+                const rows = r2.data.filter(row => row.length >= 8 && row[0] && row[1]);
+                const daten2 = rows.map(row => ({
+                  firma: (row[0]||"").trim(),      // A
+                  ort:   (row[1]||"").trim(),      // B
+                  preis: parseFloat(String(row[2]||"0").replace(",", ".")), // C
+                  zert:  (row[6]||"").trim(),      // G
+                  sack:  (row[7]||"").trim()       // H (sackware)
+                }));
+                resolve(normalizePreise(daten2));
+              }
+            });
+            return;
+          }
+          resolve(normalizePreise(daten));
+        }catch(e){
+          console.error("Header-Parsing Fehler:", e);
+          resolve([]);
+        }
       }
     });
   });
 
+  // Kunden (wie gehabt)
   const kundenPromise = new Promise((resolve)=>{
     Papa.parse(sheetUrlKunden, {
       download:true, header:true,
@@ -152,6 +184,15 @@ async function ladeDaten() {
   werke = firmen; kunden = kundenDaten;
 }
 
+function normalizePreise(daten){
+  const gültige = daten.filter(w => !isNaN(w.preis) && w.preis > 0);
+  const avg = gültige.length ? (gültige.reduce((a,b)=>a+b.preis,0)/gültige.length) : 0;
+  return daten.map(w=>{
+    if(isNaN(w.preis)||w.preis<=0){w.preis=avg;w.keinPreis=true;}else w.keinPreis=false;
+    return w;
+  });
+}
+
 async function buildMap(){
   alleMarker = [];
   const bounds=L.latLngBounds();
@@ -159,28 +200,18 @@ async function buildMap(){
   for(const w of werke){
     const c=geoCache[w.ort]||await geocode(w.ort);
     if(!c)continue;
-
-    // initial: Normpreis (C)
     const f=colorForPrice(w.preis,w.keinPreis);
 
-    // Zertifikate im Tooltip: 'ENplus' großschreiben
-    const zertAnzeige = (w.zert||"").replace(/en\s*plus/ig,"ENplus").replace(/enplus/ig,"ENplus");
-    const zertInfo = zertAnzeige ? `<br><b>Zertifikat:</b> ${zertAnzeige}` : "";
+    const zertInfo = w.zert ? `<br><b>Zertifikat:</b> ${w.zert}` : "";
     const sackInfo = w.sack ? `<br><b>Sackware:</b> ${w.sack}` : "";
 
     const m=L.circleMarker([c.lat,c.lon],{radius:8,color:f,fillColor:f,fillOpacity:0.85})
-      .bindTooltip(
-        `<b>${w.firma}</b><br>${w.ort}<br>${w.preis.toFixed(2)} €${zertInfo}${sackInfo}`,
-        {sticky:true}
-      )
+      .bindTooltip(`<b>${w.firma}</b><br>${w.ort}<br>${w.preis.toFixed(2)} €${zertInfo}${sackInfo}`,{sticky:true})
       .on("click",()=>handleMarkerClick(w.firma,c));
 
     alleMarker.push({
       type:"firma",
       zert:(w.zert||"").toLowerCase(),
-      zertAnzeige,
-      normPreis:w.preis,
-      sackPreis:isNaN(w.preisSack)?null:w.preisSack,
       farbe:f,
       sack:(w.sack||""),
       marker:m
@@ -203,10 +234,10 @@ async function buildMap(){
 }
 
 function updateLayers(){
-  // alles runter
+  // Immer alle runternehmen
   alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
 
-  // Checkbox-States
+  // IDs IMMER direkt abfragen (nicht auf globale Variablen via ID verlassen!)
   const en         = document.getElementById("chkEnPlus").checked;
   const din        = document.getElementById("chkDINplus").checked;
   const sure       = document.getElementById("chkSURE").checked;
@@ -227,7 +258,7 @@ function updateLayers(){
       continue;
     }
 
-    // Sackware-Filter auf Basis von Spalte H (Text)
+    // Sackware-Filter (Spalte H: "sackware")
     if (wantFireflies || want15kg) {
       const sNorm = (m.sack||"").toLowerCase().replace(/\s+/g,' ').trim();
       const hasFireflies = sNorm.includes("fireflies");
@@ -236,7 +267,7 @@ function updateLayers(){
       if (want15kg && !has15kg) continue;
     }
 
-    // Zertifikate-Filter (Vergleich in Lowercase), Anzeige mit ENplus
+    // Zertifikate
     const z = m.zert || "";
     let zertOK = false;
     if(z.includes("enplus") && en) zertOK = true;
@@ -245,75 +276,11 @@ function updateLayers(){
     if(!z && ohne) zertOK = true;
     if(!zertOK) continue;
 
-    // >>> Preis auswählen: 15kg -> Sackware-Preis (E), sonst Normpreis (C)
-    const activePrice = (want15kg && m.sackPreis && m.sackPreis>0) ? m.sackPreis : m.normPreis;
-    const keinPreis = isNaN(activePrice) || activePrice<=0;
-    const activeColor = colorForPrice(activePrice, keinPreis);
-
-    // Marker-Style & Tooltip live aktualisieren
-    if (m.marker.setStyle) {
-      m.marker.setStyle({color:activeColor, fillColor:activeColor});
-    }
-    const preisLabel = (want15kg && m.sackPreis && m.sackPreis>0) ? `${activePrice.toFixed(2)} € (15 kg)` : `${activePrice.toFixed(2)} €`;
-    const zertInfo = m.zertAnzeige ? `<br><b>Zertifikat:</b> ${m.zertAnzeige}` : "";
-    const sackInfo = m.sack ? `<br><b>Sackware:</b> ${m.sack}` : "";
-    const html = `<b>${m.marker.getTooltip()._content.match(/<b>(.*?)<\/b>/)?.[1] || ""}</b><br>`; // not used further, keep simple
-    const tooltipHTML = m.marker.getTooltip()
-      ? m.marker.getTooltip().getContent().replace(/<br>\d+[\d.,]* €.*?(?=<br>|$)/, "") // best-effort cleanup
-      : "";
-
-    // Einfach neu setzen (robust):
-    m.marker.unbindTooltip();
-    m.marker.bindTooltip(
-      `<b>${m.marker.options.title || ""}${""}</b>`,
-      {sticky:true}
-    ); // placeholder to ensure bind; then rebuild real content:
-
-    // Da wir Name/Ort hier nicht gespeichert hatten, bauen wir neu:
-    // Besser: Name/Ort im Marker-Objekt speichern. (machen wir jetzt)
-  }
-
-  // zweite Runde: sauber mit gespeicherten Metadaten rendern
-  for (const m of alleMarker) {
-    if (m.type !== "firma") continue;
-
-    // Zustand nochmal lesen
-    const want15kg2 = document.getElementById("chkSack15kg").checked;
-    const activePrice = (want15kg2 && m.sackPreis && m.sackPreis>0) ? m.sackPreis : m.normPreis;
-    const keinPreis = isNaN(activePrice) || activePrice<=0;
-    const activeColor = colorForPrice(activePrice, keinPreis);
-
-    if (m.marker.setStyle) {
-      m.marker.setStyle({color:activeColor, fillColor:activeColor});
-    }
-
-    // Wir hatten Name/Ort nicht gespeichert – ergänzen wir in buildMap sauber:
-    // (siehe unten: wir setzen title + _meta)
-    const firma = m._meta?.firma || "";
-    const ort   = m._meta?.ort || "";
-    const zertInfo = m.zertAnzeige ? `<br><b>Zertifikat:</b> ${m.zertAnzeige}` : "";
-    const sackInfo = m.sack ? `<br><b>Sackware:</b> ${m.sack}` : "";
-    const preisLabel = (want15kg2 && m.sackPreis && m.sackPreis>0) ? `${activePrice.toFixed(2)} € (15 kg)` : `${activePrice.toFixed(2)} €`;
-
-    m.marker.unbindTooltip();
-    m.marker.bindTooltip(
-      `<b>${firma}</b><br>${ort}<br>${preisLabel}${zertInfo}${sackInfo}`,
-      {sticky:true}
-    );
-
-    // Farbenfilter anwenden
-    const gruen = document.getElementById("chkGruen").checked;
-    const orange = document.getElementById("chkOrange").checked;
-    const rot = document.getElementById("chkRot").checked;
-    const grau = document.getElementById("chkGrau").checked;
-
-    let show=false;
-    if(activeColor==="green" && gruen) show=true;
-    if(activeColor==="orange" && orange) show=true;
-    if(activeColor==="red" && rot) show=true;
-    if(activeColor==="#9e9e9e" && grau) show=true;
-
-    if(show) map.addLayer(m.marker);
+    // Preisfarben
+    if(m.farbe === "green" && gruen) { map.addLayer(m.marker); continue; }
+    if(m.farbe === "orange" && orange) { map.addLayer(m.marker); continue; }
+    if(m.farbe === "red" && rot) { map.addLayer(m.marker); continue; }
+    if(m.farbe === "#9e9e9e" && grau) { map.addLayer(m.marker); continue; }
   }
 }
 
@@ -382,18 +349,7 @@ document.getElementById("searchInput").addEventListener("keydown", e => {
 
 (async ()=>{
   await ladeDaten();
-  // beim Erstellen Name/Ort für späteren Tooltip merken
   await buildMap();
-  // ergänze Metadaten am Marker
-  // (nach buildMap einmalig durchlaufen)
-  for (let i=0;i<werke.length;i++){
-    const w = werke[i];
-    const entry = alleMarker.find(m=>m.type==="firma" && m.marker && !m._meta && m.zert!==undefined);
-    if(entry){
-      entry._meta = {firma:w.firma, ort:w.ort};
-      entry.marker.options.title = w.firma; // für simple Wiederverwendung
-    }
-  }
 })();
 </script>
 </body>
