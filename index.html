@@ -237,13 +237,11 @@ async function buildMap(){
     const c=geoCache[w.ort]||await geocode(w.ort);
     if(!c)continue;
 
-    // initiale Farbe (Preisquelle kann sich später ändern)
     const farbeInit = sackFilterAktiv() ? w.farbeSack : w.farbeWerk;
 
     const m=L.circleMarker([c.lat,c.lon],{radius:8,color:farbeInit,fillColor:farbeInit,fillOpacity:0.85})
       .bindTooltip("", {sticky:true})
       .on("tooltipopen", () => {
-        // Tooltip-Inhalt jedes Mal frisch berechnen
         m.getTooltip().setContent( tooltipHtmlFromMarker({
           firma:w.firma, ort:w.ort,
           preis:w.preis, preisSack:w.preisSack,
@@ -281,14 +279,12 @@ async function buildMap(){
   }
 
   if(bounds.isValid())map.fitBounds(bounds.pad(0.15));
-  updateLayers(); // initialer Render
+  updateLayers();
 }
 
 function updateLayers(){
-  // Immer alle runternehmen
   alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
 
-  // IDs IMMER direkt abfragen
   const en         = document.getElementById("chkEnPlus").checked;
   const din        = document.getElementById("chkDINplus").checked;
   const sure       = document.getElementById("chkSURE").checked;
@@ -310,13 +306,18 @@ function updateLayers(){
       continue;
     }
 
-    // Sackware-Filter (Spalte H: "sackware")
+    // ----------- SACKWARE-FILTER (jetzt ODER-Logik) -----------
     if (useSack) {
       const sNorm = (m.sack||"").toLowerCase().replace(/\s+/g,' ').trim();
       const hasFireflies = sNorm.includes("fireflies");
       const has15kg = sNorm.includes("15 kg") || sNorm.includes("15kg");
-      if (wantFireflies && !hasFireflies) continue;
-      if (want15kg && !has15kg) continue;
+
+      // Fall 1: nur FireFlies gewählt
+      if (wantFireflies && !want15kg && !hasFireflies) continue;
+      // Fall 2: nur 15kg gewählt
+      if (want15kg && !wantFireflies && !has15kg) continue;
+      // Fall 3: beide gewählt → mindestens eins muss passen
+      if (wantFireflies && want15kg && !(hasFireflies || has15kg)) continue;
     }
 
     // Zertifikate
@@ -328,10 +329,8 @@ function updateLayers(){
     if(!z && ohne) zertOK = true;
     if(!zertOK) continue;
 
-    // Farbe nach aktueller Preisquelle (Werk vs. Sackware)
     const aktiveFarbe = useSack ? m.farbeSack : m.farbeWerk;
 
-    // Legendenfilter
     const isGruen  = aktiveFarbe === "green";
     const isOrange = aktiveFarbe === "orange";
     const isRot    = aktiveFarbe === "red";
@@ -344,10 +343,8 @@ function updateLayers(){
     if(isGrau && grau) sichtbar = true;
     if(!sichtbar) continue;
 
-    // Marker-Farbe live aktualisieren
     m.marker.setStyle({color:aktiveFarbe, fillColor:aktiveFarbe});
 
-    // Tooltip-Inhalt beim Redraw auffrischen (falls bereits erzeugt)
     if (m.marker.getTooltip()) {
       m.marker.getTooltip().setContent( tooltipHtmlFromMarker(m) );
     }
@@ -378,7 +375,6 @@ async function showRoute(a,b){
     const durationStr = hours>0?`${hours}h ${minutes}min`:`${minutes}min`;
     const coords = route.geometry.coordinates.map(c=>[c[1],c[0]]);
 
-    // Aktuellen Preis (Werk vs. Sackware) verwenden
     const useSack = sackFilterAktiv();
     const firmeneintrag = werke.find(w => w.firma === a.label || w.firma === b.label);
     const firmenPreis = firmeneintrag
@@ -405,12 +401,10 @@ async function showRoute(a,b){
   } else alert("Keine Route gefunden!");
 }
 
-// Alle Checkboxen triggern das Redraw
 document.addEventListener("change", e => {
   if(e.target && e.target.matches('input[type="checkbox"]')) updateLayers();
 });
 
-// Suche
 document.getElementById("searchInput").addEventListener("keydown", e => {
   if(e.key === "Enter"){
     const query = e.target.value.toLowerCase().trim();
