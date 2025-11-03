@@ -63,7 +63,8 @@
   <label><input type="checkbox" id="chkOrange" checked> 🟠 260–285 €</label><br>
   <label><input type="checkbox" id="chkRot" checked> 🔴 ≥ 285 €</label><br>
   <label><input type="checkbox" id="chkGrau" checked> ⚪ kein Preis</label><br>
-  <label><input type="checkbox" id="chkKunden" checked> 🔷 Kunden</label>
+  <label><input type="checkbox" id="chkKunden" checked> 🔷 Kunden</label><br>
+  <label><input type="checkbox" id="chkSackKunden" checked> 🟣 Sackwaren-Kunden</label>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -104,13 +105,23 @@ const blauesDreieck = L.divIcon({
   popupAnchor: [0,-20]
 });
 
+// lila Dreieck für Sackwaren-Kunden
+const lilaDreieck = L.divIcon({
+  className: "custom-triangle-purple",
+  html: `<svg width="24" height="24" viewBox="0 0 24 24">
+           <polygon points="12,2 22,22 2,22" fill="purple" stroke="black" stroke-width="1"/>
+         </svg>`,
+  iconAnchor: [12,22],
+  popupAnchor: [0,-20]
+});
+
 // Google Sheets
 const sheetUrlFirmen = "https://docs.google.com/spreadsheets/d/1f1oD1TlYWPRbD12d05yIGkqmXVygVt3ZHLk9U0bKoTs/export?format=csv";
 const sheetUrlKunden = "https://docs.google.com/spreadsheets/d/1DaiLyZbhJkdSQ1PHbJQmguIrDnGrrhiAVgJC4PJO8vA/export?format=csv&gid=0";
 
 let werke = [], kunden = [], alleMarker = [], selectedPoints = [], routeLine = null;
 
-// --- Firmen: robustes Parsing (Header-Name bevorzugt, sonst Fallback nach Index) ---
+// --- Firmen: robustes Parsing ---
 function parseFirmenWithHeader(rows){
   const lc = (s)=>String(s||"").toLowerCase();
   const keys = Object.keys(rows[0]||{});
@@ -119,9 +130,7 @@ function parseFirmenWithHeader(rows){
   const nameKey = findKey(["firma","name","werk"]) || keys[0];
   const ortKey  = findKey(["ort","stadt","location","standort","adresse"]) || keys[1];
 
-  // Werkspreis (typ. Spalte C)
   const preisKey = findKey(["preis","price","€/t","euro","euro_t","werkspreis"]);
-  // Sackware-Preis (typ. Spalte E)
   const sackPreisKey = findKey(["preis_sack","preis sack","sackpreis","bag_price","sackwarepreis","sackware preis","sackwarenpreis","preis_e"]);
 
   const zertKey = findKey(["zertifikate","zertifikat","zert","cert"]);
@@ -140,7 +149,7 @@ function parseFirmenWithHeader(rows){
 }
 
 async function ladeDaten() {
-  // Firmen (erst header:true, Fallback header:false+Index)
+  // Firmen
   const firmenPromise = new Promise((resolve) => {
     Papa.parse(sheetUrlFirmen, {
       download: true, header: true,
@@ -150,19 +159,18 @@ async function ladeDaten() {
           if (r.data && r.data.length && Object.keys(r.data[0]||{}).length > 1) {
             daten = parseFirmenWithHeader(r.data);
           }
-          // Fallback, falls Header nicht passt
           if (!daten.length) {
             Papa.parse(sheetUrlFirmen, {
               download: true, header: false,
               complete: (r2) => {
                 const rows = r2.data.filter(row => row.length >= 8 && row[0] && row[1]);
                 const daten2 = rows.map(row => ({
-                  firma: (row[0]||"").trim(),      // A
-                  ort:   (row[1]||"").trim(),      // B
-                  preis: parseFloat(String(row[2]||"0").replace(",", ".")),      // C
-                  preisSack: parseFloat(String(row[4]||"0").replace(",", ".")),  // E
-                  zert:  (row[6]||"").trim(),      // G
-                  sack:  (row[7]||"").trim()       // H (sackware)
+                  firma: (row[0]||"").trim(),
+                  ort:   (row[1]||"").trim(),
+                  preis: parseFloat(String(row[2]||"0").replace(",", ".")),
+                  preisSack: parseFloat(String(row[4]||"0").replace(",", ".")),
+                  zert:  (row[6]||"").trim(),
+                  sack:  (row[7]||"").trim()
                 }));
                 resolve(normalizePreise(daten2));
               }
@@ -178,7 +186,7 @@ async function ladeDaten() {
     });
   });
 
-  // Kunden (wie gehabt)
+  // Kunden
   const kundenPromise = new Promise((resolve)=>{
     Papa.parse(sheetUrlKunden, {
       download:true, header:true,
@@ -186,7 +194,19 @@ async function ladeDaten() {
         const headers = Object.keys(r.data[0]||{});
         const nameKey = headers.find(h=>h.toLowerCase().includes("name"))||"name";
         const ortKey = headers.find(h=>["ort","adresse","standort","anschrift","stadt","location"].includes(h.toLowerCase()))||"ort";
-        resolve(r.data.map(x=>({name:(x[nameKey]||"").trim(), ort:(x[ortKey]||"").trim()})).filter(x=>x.name && x.ort));
+        const loseKey = headers.find(h=>h.toLowerCase()==="lose") || "lose";
+        const sackKey = headers.find(h=>h.toLowerCase()==="sackware") || "sackware";
+
+        const kundenDaten = r.data
+          .map(x=>({
+            name:(x[nameKey]||"").trim(),
+            ort:(x[ortKey]||"").trim(),
+            lose:(x[loseKey]||"").trim().toLowerCase(),
+            sackware:(x[sackKey]||"").trim().toLowerCase()
+          }))
+          .filter(x=>x.name && x.ort);
+
+        resolve(kundenDaten);
       }
     });
   });
@@ -196,7 +216,6 @@ async function ladeDaten() {
 }
 
 function normalizePreise(daten){
-  // getrennte Mittelwerte für Werkspreis (C) und Sackpreis (E)
   const gültigeWerk = daten.filter(w => !isNaN(w.preis) && w.preis > 0);
   const gültigeSack = daten.filter(w => !isNaN(w.preisSack) && w.preisSack > 0);
   const avgWerk = gültigeWerk.length ? (gültigeWerk.reduce((a,b)=>a+b.preis,0)/gültigeWerk.length) : 0;
@@ -205,8 +224,6 @@ function normalizePreise(daten){
   return daten.map(w=>{
     if(isNaN(w.preis)||w.preis<=0){w.preis=avgWerk;w.keinPreisWerk=true;}else w.keinPreisWerk=false;
     if(isNaN(w.preisSack)||w.preisSack<=0){w.preisSack=avgSack;w.keinPreisSack=true;}else w.keinPreisSack=false;
-
-    // Farben für beide Preisarten vorab berechnen
     w.farbeWerk = colorForPrice(w.preis, w.keinPreisWerk);
     w.farbeSack = colorForPrice(w.preisSack, w.keinPreisSack);
     return w;
@@ -219,7 +236,6 @@ function sackFilterAktiv(){
   return (wantFireflies || want15kg);
 }
 
-// ---------- Tooltip-HTML immer frisch berechnen ----------
 function tooltipHtmlFromMarker(m){
   const useSack = sackFilterAktiv();
   const preisNow = useSack && isFinite(m.preisSack) && m.preisSack > 0 ? m.preisSack : m.preis;
@@ -233,6 +249,7 @@ async function buildMap(){
   alleMarker = [];
   const bounds=L.latLngBounds();
 
+  // Werke
   for(const w of werke){
     const c=geoCache[w.ort]||await geocode(w.ort);
     if(!c)continue;
@@ -268,13 +285,28 @@ async function buildMap(){
     bounds.extend([c.lat,c.lon]);
   }
 
+  // Kunden
   for(const k of kunden){
     const c=geoCache[k.ort]||await geocode(k.ort);
     if(!c)continue;
-    const m=L.marker([c.lat,c.lon],{icon:blauesDreieck})
+
+    // HIER ist die Logik:
+    // sackware = ja, lose != ja  --> lila
+    // sackware = ja, lose = ja   --> normal blau
+    // sonst --> normal blau (wie vorher)
+    const isSackOnly = (k.sackware === "ja") && (k.lose !== "ja");
+
+    const iconToUse = isSackOnly ? lilaDreieck : blauesDreieck;
+
+    const m=L.marker([c.lat,c.lon],{icon:iconToUse})
       .bindTooltip(`<b>${k.name}</b><br>${k.ort}`,{sticky:true})
       .on("click",()=>handleMarkerClick(k.name,c));
-    alleMarker.push({type:"kunde",marker:m});
+
+    alleMarker.push({
+      type: isSackOnly ? "sackkunde" : "kunde",
+      marker:m
+    });
+
     bounds.extend([c.lat,c.lon]);
   }
 
@@ -295,32 +327,33 @@ function updateLayers(){
   const rot        = document.getElementById("chkRot").checked;
   const grau       = document.getElementById("chkGrau").checked;
   const kundenFlag = document.getElementById("chkKunden").checked;
+  const sackKundenFlag = document.getElementById("chkSackKunden").checked;
 
   const wantFireflies = document.getElementById("chkSackFireflies").checked;
   const want15kg      = document.getElementById("chkSack15kg").checked;
   const useSack       = (wantFireflies || want15kg);
 
   for(const m of alleMarker){
+    // Kunden
     if(m.type === "kunde"){
       if(kundenFlag) map.addLayer(m.marker);
       continue;
     }
+    if(m.type === "sackkunde"){
+      if(sackKundenFlag) map.addLayer(m.marker);
+      continue;
+    }
 
-    // ----------- SACKWARE-FILTER (jetzt ODER-Logik) -----------
+    // Firmen
     if (useSack) {
       const sNorm = (m.sack||"").toLowerCase().replace(/\s+/g,' ').trim();
       const hasFireflies = sNorm.includes("fireflies");
       const has15kg = sNorm.includes("15 kg") || sNorm.includes("15kg");
-
-      // Fall 1: nur FireFlies gewählt
       if (wantFireflies && !want15kg && !hasFireflies) continue;
-      // Fall 2: nur 15kg gewählt
       if (want15kg && !wantFireflies && !has15kg) continue;
-      // Fall 3: beide gewählt → mindestens eins muss passen
       if (wantFireflies && want15kg && !(hasFireflies || has15kg)) continue;
     }
 
-    // Zertifikate
     const z = m.zert || "";
     let zertOK = false;
     if(z.includes("enplus") && en) zertOK = true;
@@ -344,11 +377,9 @@ function updateLayers(){
     if(!sichtbar) continue;
 
     m.marker.setStyle({color:aktiveFarbe, fillColor:aktiveFarbe});
-
     if (m.marker.getTooltip()) {
       m.marker.getTooltip().setContent( tooltipHtmlFromMarker(m) );
     }
-
     map.addLayer(m.marker);
   }
 }
