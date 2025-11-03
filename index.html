@@ -15,7 +15,6 @@
       border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);
       font:14px/1.3 system-ui,Arial,sans-serif;
     }
-
     .legend{bottom:12px;right:12px}
     .cert-box{bottom:12px;left:12px;}
 
@@ -39,7 +38,7 @@
 <body>
 <div id="map"></div>
 
-<!-- Suchfeld -->
+<!-- Suche -->
 <div class="search-box">
   🔍 <input type="text" id="searchInput" placeholder="Firma, Kunde oder Ort suchen…" />
 </div>
@@ -57,7 +56,7 @@
   <label><input type="checkbox" id="chkSack15kg"> 15 kg</label>
 </div>
 
-<!-- Farb-Filter (rechts unten) -->
+<!-- Farben -->
 <div class="legend">
   <b>Filter Farben</b><br>
   <label><input type="checkbox" id="chkGruen" checked> 🟢 ≤ 260 €</label><br>
@@ -105,43 +104,77 @@ const blauesDreieck = L.divIcon({
   popupAnchor: [0,-20]
 });
 
-// Tabellen
+// Google Sheets
 const sheetUrlFirmen = "https://docs.google.com/spreadsheets/d/1f1oD1TlYWPRbD12d05yIGkqmXVygVt3ZHLk9U0bKoTs/export?format=csv";
 const sheetUrlKunden = "https://docs.google.com/spreadsheets/d/1DaiLyZbhJkdSQ1PHbJQmguIrDnGrrhiAVgJC4PJO8vA/export?format=csv&gid=0";
 
 let werke = [], kunden = [], alleMarker = [], selectedPoints = [], routeLine = null;
 
+// --- Firmen: robustes Parsing (Header-Name bevorzugt, sonst Fallback nach Index) ---
+function parseFirmenWithHeader(rows){
+  const nameKey = ["firma","name","werk"].find(k=>k in rows[0]) || Object.keys(rows[0])[0];
+  const ortKey  = ["ort","stadt","location","standort","adresse"].find(k=>k in rows[0]) || Object.keys(rows[0])[1];
+  const preisKey= ["preis","price","€/t","euro","euro_t"].find(k=>k in rows[0]);
+  const zertKey = ["zertifikate","zertifikat","zert","cert"].find(k=>k in rows[0]);
+  const sackKey = ["sackware","sack","bag","bagged"].find(k=>k in rows[0]);
+
+  return rows
+    .filter(x => (x[nameKey]||"").trim() && (x[ortKey]||"").trim())
+    .map(x => ({
+      firma: (x[nameKey]||"").trim(),
+      ort: (x[ortKey]||"").trim(),
+      preis: parseFloat(String(x[preisKey]||"0").replace(",", ".")),
+      zert: (x[zertKey]||"").trim(),
+      sack: (x[sackKey]||"").trim()
+    }));
+}
+
 async function ladeDaten() {
+  // Firmen (erst header:true, Fallback header:false+Index)
   const firmenPromise = new Promise((resolve) => {
     Papa.parse(sheetUrlFirmen, {
-      download: true, header: false,
+      download: true, header: true,
       complete: (r) => {
-        // A: Firma | B: Ort | C: Preis | ... | G: Zertifikate | H: sackware
-        const rows = r.data.filter(row => row.length >= 8 && row[0] && row[1]);
-        const daten = rows.map(row => ({
-          firma: (row[0] || "").trim(),
-          ort: (row[1] || "").trim(),
-          preis: parseFloat((row[2] || "0").replace(",", ".")),
-          zert: (row[6] || "").trim(),
-          sack: (row[7] || "").trim() // Spalte H: "sackware"
-        }));
-        const gültige = daten.filter(w => !isNaN(w.preis) && w.preis > 0);
-        const avg = gültige.length ? (gültige.reduce((a,b)=>a+b.preis,0)/gültige.length) : 0;
-        resolve(daten.map(w=>{
-          if(isNaN(w.preis)||w.preis<=0){w.preis=avg;w.keinPreis=true;}else w.keinPreis=false;
-          return w;
-        }));
+        try{
+          let daten = [];
+          if (r.data && r.data.length && Object.keys(r.data[0]).length > 1) {
+            daten = parseFirmenWithHeader(r.data);
+          }
+          // Fallback, falls Header nicht passt
+          if (!daten.length) {
+            Papa.parse(sheetUrlFirmen, {
+              download: true, header: false,
+              complete: (r2) => {
+                const rows = r2.data.filter(row => row.length >= 8 && row[0] && row[1]);
+                const daten2 = rows.map(row => ({
+                  firma: (row[0]||"").trim(),      // A
+                  ort:   (row[1]||"").trim(),      // B
+                  preis: parseFloat(String(row[2]||"0").replace(",", ".")), // C
+                  zert:  (row[6]||"").trim(),      // G
+                  sack:  (row[7]||"").trim()       // H (sackware)
+                }));
+                resolve(normalizePreise(daten2));
+              }
+            });
+            return;
+          }
+          resolve(normalizePreise(daten));
+        }catch(e){
+          console.error("Header-Parsing Fehler:", e);
+          resolve([]);
+        }
       }
     });
   });
 
+  // Kunden (wie gehabt)
   const kundenPromise = new Promise((resolve)=>{
     Papa.parse(sheetUrlKunden, {
       download:true, header:true,
       complete:(r)=>{
         const headers = Object.keys(r.data[0]||{});
         const nameKey = headers.find(h=>h.toLowerCase().includes("name"))||"name";
-        const ortKey = headers.find(h=>["ort","adresse","standort","anschrift"].includes(h.toLowerCase()))||"ort";
+        const ortKey = headers.find(h=>["ort","adresse","standort","anschrift","stadt","location"].includes(h.toLowerCase()))||"ort";
         resolve(r.data.map(x=>({name:(x[nameKey]||"").trim(), ort:(x[ortKey]||"").trim()})).filter(x=>x.name && x.ort));
       }
     });
@@ -149,6 +182,15 @@ async function ladeDaten() {
 
   const [firmen, kundenDaten] = await Promise.all([firmenPromise, kundenPromise]);
   werke = firmen; kunden = kundenDaten;
+}
+
+function normalizePreise(daten){
+  const gültige = daten.filter(w => !isNaN(w.preis) && w.preis > 0);
+  const avg = gültige.length ? (gültige.reduce((a,b)=>a+b.preis,0)/gültige.length) : 0;
+  return daten.map(w=>{
+    if(isNaN(w.preis)||w.preis<=0){w.preis=avg;w.keinPreis=true;}else w.keinPreis=false;
+    return w;
+  });
 }
 
 async function buildMap(){
@@ -164,10 +206,7 @@ async function buildMap(){
     const sackInfo = w.sack ? `<br><b>Sackware:</b> ${w.sack}` : "";
 
     const m=L.circleMarker([c.lat,c.lon],{radius:8,color:f,fillColor:f,fillOpacity:0.85})
-      .bindTooltip(
-        `<b>${w.firma}</b><br>${w.ort}<br>${w.preis.toFixed(2)} €${zertInfo}${sackInfo}`,
-        {sticky:true}
-      )
+      .bindTooltip(`<b>${w.firma}</b><br>${w.ort}<br>${w.preis.toFixed(2)} €${zertInfo}${sackInfo}`,{sticky:true})
       .on("click",()=>handleMarkerClick(w.firma,c));
 
     alleMarker.push({
@@ -195,22 +234,23 @@ async function buildMap(){
 }
 
 function updateLayers(){
-  alleMarker.forEach(m=>map.removeLayer(m.marker));
+  // Immer alle runternehmen
+  alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
 
-  const en = chkEnPlus.checked;
-  const din = chkDINplus.checked;
-  const sure = chkSURE.checked;
-  const ohne = chkOhneZert.checked;
+  // IDs IMMER direkt abfragen (nicht auf globale Variablen via ID verlassen!)
+  const en         = document.getElementById("chkEnPlus").checked;
+  const din        = document.getElementById("chkDINplus").checked;
+  const sure       = document.getElementById("chkSURE").checked;
+  const ohne       = document.getElementById("chkOhneZert").checked;
 
-  const gruen = chkGruen.checked;
-  const orange = chkOrange.checked;
-  const rot = chkRot.checked;
-  const grau = chkGrau.checked;
-  const kundenFlag = chkKunden.checked;
+  const gruen      = document.getElementById("chkGruen").checked;
+  const orange     = document.getElementById("chkOrange").checked;
+  const rot        = document.getElementById("chkRot").checked;
+  const grau       = document.getElementById("chkGrau").checked;
+  const kundenFlag = document.getElementById("chkKunden").checked;
 
-  // Sackware-Filter (Spalte H: "sackware")
   const wantFireflies = document.getElementById("chkSackFireflies").checked;
-  const want15kg = document.getElementById("chkSack15kg").checked;
+  const want15kg      = document.getElementById("chkSack15kg").checked;
 
   for(const m of alleMarker){
     if(m.type === "kunde"){
@@ -218,7 +258,7 @@ function updateLayers(){
       continue;
     }
 
-    // Sackware-Filter nur anwenden, wenn mind. eine Checkbox aktiv ist
+    // Sackware-Filter (Spalte H: "sackware")
     if (wantFireflies || want15kg) {
       const sNorm = (m.sack||"").toLowerCase().replace(/\s+/g,' ').trim();
       const hasFireflies = sNorm.includes("fireflies");
@@ -227,7 +267,7 @@ function updateLayers(){
       if (want15kg && !has15kg) continue;
     }
 
-    // Zertifikate filtern
+    // Zertifikate
     const z = m.zert || "";
     let zertOK = false;
     if(z.includes("enplus") && en) zertOK = true;
@@ -236,7 +276,7 @@ function updateLayers(){
     if(!z && ohne) zertOK = true;
     if(!zertOK) continue;
 
-    // Preisfarben filtern
+    // Preisfarben
     if(m.farbe === "green" && gruen) { map.addLayer(m.marker); continue; }
     if(m.farbe === "orange" && orange) { map.addLayer(m.marker); continue; }
     if(m.farbe === "red" && rot) { map.addLayer(m.marker); continue; }
@@ -286,9 +326,9 @@ async function showRoute(a,b){
   } else alert("Keine Route gefunden!");
 }
 
-// Checkboxen reagieren sofort
+// Alle Checkboxen triggern das Redraw
 document.addEventListener("change", e => {
-  if(e.target.type === "checkbox") updateLayers();
+  if(e.target && e.target.matches('input[type="checkbox"]')) updateLayers();
 });
 
 // Suche
