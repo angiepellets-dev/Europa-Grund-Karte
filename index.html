@@ -109,6 +109,10 @@
       <label><input type="checkbox" class="countryChk" value="pl"> Polen</label>
       <label><input type="checkbox" class="countryChk" value="cz"> Tschechien</label>
       <label><input type="checkbox" class="countryChk" value="fr"> Frankreich</label>
+      <!-- NEU -->
+      <label><input type="checkbox" class="countryChk" value="ch"> Schweiz</label>
+      <label><input type="checkbox" class="countryChk" value="be"> Belgien</label>
+      <label><input type="checkbox" class="countryChk" value="sk"> Slowakei</label>
     </div>
   </div>
   <br><br>
@@ -394,7 +398,10 @@ function updateCountryButtonLabel() {
       at: "AT",
       pl: "PL",
       cz: "CZ",
-      fr: "FR"
+      fr: "FR",
+      ch: "CH",
+      be: "BE",
+      sk: "SK"
     };
     btn.textContent = selected.map(c => names[c] || c).join(", ");
   }
@@ -533,6 +540,16 @@ async function showRoute(a,b){
     map.fitBounds(routeLine.getBounds(),{padding:[40,40]});
   } else alert("Keine Route gefunden!");
 }
+
+// >>> NEU: Klick auf Karte entfernt Strecke & Popup
+map.on('click', () => {
+  if (routeLine) {
+    map.removeLayer(routeLine);
+    routeLine = null;
+  }
+  selectedPoints = [];
+  map.closePopup();
+});
 
 // globale Change-Listener
 document.addEventListener("change", e => {
