@@ -24,12 +24,12 @@
       z-index:1000;
     }
 
-    /* Länder + Farben Box: links ÜBER der Zertifikate-Box */
+    /* Legende: rechts oben unter der Suche */
     .legend{
-      bottom:230px;    /* höher, damit sie darüber sitzt */
-      left:12px;       /* gleiche linke Kante */
+      top:150px;        /* unter Suchbox + Dropdown */
+      right:12px;
       min-width:180px;
-      z-index:3000;    /* über der Zertifikate-Box */
+      z-index:3000;
     }
 
     .cert-box input[type="checkbox"],
@@ -41,18 +41,22 @@
       position:absolute;top:12px;right:12px;z-index:1500;
       background:#fff;padding:8px 10px;border-radius:6px;
       box-shadow:0 2px 8px rgba(0,0,0,.15);
-      font:14px system-ui,Arial,sans-serif
+      font:14px system-ui,Arial,sans-serif;
+      width:260px;
     }
     .search-box input{
-      width:220px;padding:6px 8px;border:1px solid #ccc;border-radius:4px;outline:none;
+      width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;outline:none;
+      box-sizing:border-box;
+      margin-left:4px;
     }
     .cert-box hr{border:none;height:1px;background:#eee;margin:6px 0}
 
     /* custom dropdown */
     .country-dropdown {
       position: relative;
-      display: inline-block;
+      display: block;
       width: 100%;
+      margin-top:8px;
     }
     .country-dropdown-button {
       width: 100%;
@@ -62,6 +66,7 @@
       padding: 4px 6px;
       text-align: left;
       cursor: pointer;
+      box-sizing:border-box;
     }
     .country-dropdown-button:after {
       content: "▾";
@@ -82,6 +87,7 @@
       max-height: 260px;      /* höher, scrollbar */
       overflow-y: auto;
       padding: 6px 8px;
+      box-sizing:border-box;
     }
     .country-dropdown-menu label {
       display: block;
@@ -93,9 +99,25 @@
 <body>
 <div id="map"></div>
 
-<!-- Suche -->
+<!-- Suche + Länderliste -->
 <div class="search-box">
   🔍 <input type="text" id="searchInput" placeholder="Firma, Kunde oder Ort suchen…" />
+
+  <b style="display:block;margin-top:6px;">Land / Länder filtern</b>
+  <div class="country-dropdown" id="countryDropdown">
+    <div class="country-dropdown-button" id="countryDropdownBtn">Alle Länder</div>
+    <div class="country-dropdown-menu" id="countryDropdownMenu">
+      <label><input type="checkbox" class="countryChk" value="all" checked> Alle</label>
+      <label><input type="checkbox" class="countryChk" value="de"> Deutschland</label>
+      <label><input type="checkbox" class="countryChk" value="at"> Österreich</label>
+      <label><input type="checkbox" class="countryChk" value="pl"> Polen</label>
+      <label><input type="checkbox" class="countryChk" value="cz"> Tschechien</label>
+      <label><input type="checkbox" class="countryChk" value="fr"> Frankreich</label>
+      <label><input type="checkbox" class="countryChk" value="ch"> Schweiz</label>
+      <label><input type="checkbox" class="countryChk" value="be"> Belgien</label>
+      <label><input type="checkbox" class="countryChk" value="sk"> Slowakei</label>
+    </div>
+  </div>
 </div>
 
 <!-- Zertifikate + Sackware -->
@@ -112,24 +134,8 @@
   <label><input type="checkbox" id="chkSack15kg"> 15 kg</label>
 </div>
 
-<!-- Farben + Länderfilter (jetzt links über der Zertifikate-Box) -->
+<!-- Legende nur für Farben + Kunden, rechts oben -->
 <div class="legend">
-  <b>Land / Länder filtern</b><br>
-  <div class="country-dropdown" id="countryDropdown">
-    <div class="country-dropdown-button" id="countryDropdownBtn">Alle Länder</div>
-    <div class="country-dropdown-menu" id="countryDropdownMenu">
-      <label><input type="checkbox" class="countryChk" value="all" checked> Alle</label>
-      <label><input type="checkbox" class="countryChk" value="de"> Deutschland</label>
-      <label><input type="checkbox" class="countryChk" value="at"> Österreich</label>
-      <label><input type="checkbox" class="countryChk" value="pl"> Polen</label>
-      <label><input type="checkbox" class="countryChk" value="cz"> Tschechien</label>
-      <label><input type="checkbox" class="countryChk" value="fr"> Frankreich</label>
-      <label><input type="checkbox" class="countryChk" value="ch"> Schweiz</label>
-      <label><input type="checkbox" class="countryChk" value="be"> Belgien</label>
-      <label><input type="checkbox" class="countryChk" value="sk"> Slowakei</label>
-    </div>
-  </div>
-  <br><br>
   <b>Filter Farben</b><br>
   <label><input type="checkbox" id="chkGruen" checked> 🟢 ≤ 260 €</label><br>
   <label><input type="checkbox" id="chkOrange" checked> 🟠 260–285 €</label><br>
