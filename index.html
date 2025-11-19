@@ -104,6 +104,7 @@
   <label><input type="checkbox" id="chkEnPlus" checked> EnPlus</label><br>
   <label><input type="checkbox" id="chkDINplus" checked> DINplus</label><br>
   <label><input type="checkbox" id="chkSURE" checked> SURE</label><br>
+  <label><input type="checkbox" id="chkCPP" checked> CPP</label><br><!-- NEU -->
   <label><input type="checkbox" id="chkOhneZert" checked> Kein Zertifikat</label>
   <hr>
   <b>Sackware</b><br>
@@ -429,6 +430,7 @@ function updateLayers(){
   const en         = document.getElementById("chkEnPlus").checked;
   const din        = document.getElementById("chkDINplus").checked;
   const sure       = document.getElementById("chkSURE").checked;
+  const cpp        = document.getElementById("chkCPP").checked;   // NEU
   const ohne       = document.getElementById("chkOhneZert").checked;
 
   const gruen      = document.getElementById("chkGruen").checked;
@@ -476,6 +478,7 @@ function updateLayers(){
     if(z.includes("enplus") && en) zertOK = true;
     if(z.includes("dinplus") && din) zertOK = true;
     if(z.includes("sure") && sure) zertOK = true;
+    if(z.includes("cpp") && cpp) zertOK = true;   // NEU
     if(!z && ohne) zertOK = true;
     if(!zertOK) continue;
 
