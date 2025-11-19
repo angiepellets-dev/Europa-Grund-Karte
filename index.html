@@ -15,7 +15,14 @@
       border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);
       font:14px/1.3 system-ui,Arial,sans-serif;
     }
-    .legend{bottom:12px;right:12px;min-width:180px}
+
+    /* HIER geändert: Legende höher gesetzt */
+    .legend{
+      bottom:80px;   /* vorher 12px */
+      right:12px;
+      min-width:180px;
+    }
+
     .cert-box{bottom:12px;left:12px;}
 
     .cert-box input[type="checkbox"],
@@ -65,8 +72,11 @@
       z-index: 2000;
       display: none;
       min-width: 160px;
-      max-height: 170px;
+
+      /* HIER geändert: mehr Höhe, besseres Scrollen */
+      max-height: 260px;  /* vorher 170px */
       overflow-y: auto;
+
       padding: 6px 8px;
     }
     .country-dropdown-menu label {
@@ -109,7 +119,7 @@
       <label><input type="checkbox" class="countryChk" value="pl"> Polen</label>
       <label><input type="checkbox" class="countryChk" value="cz"> Tschechien</label>
       <label><input type="checkbox" class="countryChk" value="fr"> Frankreich</label>
-      <!-- NEU -->
+      <!-- Neu hinzugefügt -->
       <label><input type="checkbox" class="countryChk" value="ch"> Schweiz</label>
       <label><input type="checkbox" class="countryChk" value="be"> Belgien</label>
       <label><input type="checkbox" class="countryChk" value="sk"> Slowakei</label>
@@ -541,8 +551,16 @@ async function showRoute(a,b){
   } else alert("Keine Route gefunden!");
 }
 
-// >>> NEU: Klick auf Karte entfernt Strecke & Popup
-map.on('click', () => {
+// Klick ins „Leere“ entfernt Strecke & Popup
+map.on('click', (e) => {
+  const t = e.originalEvent && e.originalEvent.target;
+  if (t && t.closest) {
+    if (t.closest('.leaflet-marker-icon') ||
+        t.closest('.leaflet-popup') ||
+        t.closest('.leaflet-interactive')) {
+      return;
+    }
+  }
   if (routeLine) {
     map.removeLayer(routeLine);
     routeLine = null;
@@ -554,15 +572,12 @@ map.on('click', () => {
 // globale Change-Listener
 document.addEventListener("change", e => {
   if (e.target && e.target.matches('input[type="checkbox"]')) {
-    // wenn es eine der Länder-Checkboxen ist:
     if (e.target.classList.contains("countryChk")) {
-      // wenn "Alle" angeklickt wird -> alle anderen aus
       if (e.target.value === "all" && e.target.checked) {
         document.querySelectorAll(".countryChk").forEach(ch => {
           if (ch.value !== "all") ch.checked = false;
         });
       } else if (e.target.value !== "all" && e.target.checked) {
-        // wenn ein Land angehakt wird -> "Alle" aus
         const allChk = document.querySelector('.countryChk[value="all"]');
         allChk.checked = false;
       }
