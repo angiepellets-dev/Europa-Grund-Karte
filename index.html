@@ -90,7 +90,7 @@
       box-sizing:border-box;
     }
 
-    /* NEU: symmetrische Ausrichtung der Checkboxen + Text */
+    /* symmetrische Ausrichtung der Checkboxen + Text */
     .country-dropdown-menu label {
       display: flex;
       align-items: center;
@@ -124,11 +124,12 @@
       <label><input type="checkbox" class="countryChk" value="at"> Österreich</label>
       <label><input type="checkbox" class="countryChk" value="pl"> Polen</label>
       <label><input type="checkbox" class="countryChk" value="cz"> Tschechien</label>
-      <label><input type="checkbox" class="countryChk" value="it"> Italien</label>
       <label><input type="checkbox" class="countryChk" value="fr"> Frankreich</label>
       <label><input type="checkbox" class="countryChk" value="ch"> Schweiz</label>
       <label><input type="checkbox" class="countryChk" value="be"> Belgien</label>
       <label><input type="checkbox" class="countryChk" value="sk"> Slowakei</label>
+      <!-- NEU: Italien -->
+      <label><input type="checkbox" class="countryChk" value="it"> Italien</label>
     </div>
   </div>
 </div>
@@ -220,7 +221,7 @@ const sheetUrlKunden = "https://docs.google.com/spreadsheets/d/1DaiLyZbhJkdSQ1PH
 
 let werke = [], kunden = [], alleMarker = [], selectedPoints = [], routeLine = null;
 
-// NEU: Durchschnittspreise pro Land (Werkspreis)
+// Durchschnittspreise pro Land (Werkspreis)
 let avgPriceByCountry = {};
 
 function parseFirmenWithHeader(rows){
@@ -335,7 +336,7 @@ function sackFilterAktiv(){
   return (wantFireflies || want15kg);
 }
 
-// NEU: Durchschnittspreise pro Land berechnen (Werkspreis)
+// Durchschnittspreise pro Land berechnen (Werkspreis)
 function berechneDurchschnittProLand(){
   const sums = {};
   const counts = {};
@@ -465,7 +466,8 @@ function updateCountryButtonLabel() {
       fr: "FR",
       ch: "CH",
       be: "BE",
-      sk: "SK"
+      sk: "SK",
+      it: "IT"   // NEU: Italien-Kürzel
     };
     btn.textContent = selected.map(c => names[c] || c).join(", ");
   }
@@ -567,7 +569,7 @@ function handleMarkerClick(label,coord){
   }
 }
 
-// NEU: einfache Luftlinie (Haversine) für Wasser-Fallback
+// einfache Luftlinie (Haversine) für Wasser-Fallback
 function luftlinieKm(aCoord, bCoord){
   const R = 6371;
   const toRad = deg => deg * Math.PI / 180;
@@ -629,7 +631,7 @@ async function showRoute(a,b){
     console.warn("OSRM Fehler:", e);
   }
 
-  // NEU: Wasser-Fallback – keine Straßenroute -> gepunktete Luftlinie
+  // Wasser-Fallback – keine Straßenroute -> gepunktete Luftlinie
   if (!routeGefunden) {
     const distNum = luftlinieKm(a.coord, b.coord);
     const dist = distNum.toFixed(1);
