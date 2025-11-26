@@ -89,10 +89,22 @@
       padding: 6px 8px;
       box-sizing:border-box;
     }
+
+    /* NEU: symmetrische Ausrichtung der Checkboxen + Text */
     .country-dropdown-menu label {
-      display: block;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 0;
       cursor: pointer;
-      margin-bottom: 3px;
+      margin: 0;
+      white-space: nowrap;
+    }
+    .country-dropdown-menu input[type="checkbox"] {
+      width:14px;
+      height:14px;
+      margin:0;
+      flex-shrink:0;
     }
   </style>
 </head>
@@ -642,7 +654,7 @@ async function showRoute(a,b){
       color:'blue',
       weight:4,
       opacity:0.9,
-      dashArray:'8 8'   // gepunktete/gestrichelte Linie über Wasser
+      dashArray:'8 8'
     }).addTo(map);
 
     const midLat = (a.coord.lat + b.coord.lat)/2;
