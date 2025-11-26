@@ -81,10 +81,10 @@
       border: 1px solid #ccc;
       border-radius: 4px;
       box-shadow: 0 2px 8px rgba(0,0,0,.12);
-      z-index: 4000;          /* ganz vorne */
+      z-index: 4000;
       display: none;
       min-width: 160px;
-      max-height: 260px;      /* höher, scrollbar */
+      max-height: 260px;
       overflow-y: auto;
       padding: 6px 8px;
       box-sizing:border-box;
@@ -126,7 +126,7 @@
   <label><input type="checkbox" id="chkEnPlus" checked> EnPlus</label><br>
   <label><input type="checkbox" id="chkDINplus" checked> DINplus</label><br>
   <label><input type="checkbox" id="chkSURE" checked> SURE</label><br>
-  <label><input type="checkbox" id="chkCPP" checked> CPP</label><br><!-- NEU -->
+  <label><input type="checkbox" id="chkCPP" checked> CPP</label><br>
   <label><input type="checkbox" id="chkOhneZert" checked> Kein Zertifikat</label>
   <hr>
   <b>Sackware</b><br>
@@ -349,7 +349,6 @@ function tooltipHtmlFromMarker(m){
   const zertInfo = m.zert ? `<br><b>Zertifikat:</b> ${m.zert}` : "";
   const sackInfo = m.sack ? `<br><b>Sackware:</b> ${m.sack}` : "";
 
-  // NEU: Landesdurchschnitt im Tooltip
   let avgTxt = "";
   const avg = avgPriceByCountry[m.country_code];
   if (avg && isFinite(avg)) {
@@ -422,21 +421,19 @@ async function buildMap(){
     bounds.extend([c.lat,c.lon]);
   }
 
-  // NEU: nachdem alle Firmen-Marker da sind, Durchschnitt je Land berechnen
   berechneDurchschnittProLand();
 
   if(bounds.isValid())map.fitBounds(bounds.pad(0.15));
   updateLayers();
 }
 
-// liest alle angehakten Länder aus dem Dropdown
+// Länder-Filter
 function getSelectedCountries() {
   const chks = document.querySelectorAll(".countryChk");
   const selected = [];
   chks.forEach(ch => {
     if (ch.checked) selected.push(ch.value);
   });
-  // wenn "all" angehakt ist oder nichts -> ["all"]
   if (selected.length === 0 || selected.includes("all")) return ["all"];
   return selected;
 }
@@ -447,7 +444,6 @@ function updateCountryButtonLabel() {
   if (selected.length === 1 && selected[0] === "all") {
     btn.textContent = "Alle Länder";
   } else {
-    // kleine Labels
     const names = {
       de: "DE",
       at: "AT",
@@ -471,7 +467,7 @@ function updateLayers(){
   const en         = document.getElementById("chkEnPlus").checked;
   const din        = document.getElementById("chkDINplus").checked;
   const sure       = document.getElementById("chkSURE").checked;
-  const cpp        = document.getElementById("chkCPP").checked;   // NEU
+  const cpp        = document.getElementById("chkCPP").checked;
   const ohne       = document.getElementById("chkOhneZert").checked;
 
   const gruen      = document.getElementById("chkGruen").checked;
@@ -519,7 +515,7 @@ function updateLayers(){
     if(z.includes("enplus") && en) zertOK = true;
     if(z.includes("dinplus") && din) zertOK = true;
     if(z.includes("sure") && sure) zertOK = true;
-    if(z.includes("cpp") && cpp) zertOK = true;   // NEU
+    if(z.includes("cpp") && cpp) zertOK = true;
     if(!z && ohne) zertOK = true;
     if(!zertOK) continue;
 
@@ -537,14 +533,12 @@ function updateLayers(){
     if(isGrau && grau) sichtbar = true;
     if(!sichtbar) continue;
 
-    // Länderfilter
     if (!noCountryFilter) {
       if (!m.country_code || !selectedCountries.includes(m.country_code)) continue;
     }
 
     m.marker.setStyle({color:aktiveFarbe, fillColor:aktiveFarbe});
     if (m.marker.getTooltip()) {
-      // Tooltip ggf. mit aktuellem Landesdurchschnitt neu setzen
       m.marker.getTooltip().setContent( tooltipHtmlFromMarker(m) );
     }
     map.addLayer(m.marker);
@@ -560,18 +554,72 @@ function handleMarkerClick(label,coord){
   }
 }
 
+// NEU: einfache Luftlinie (Haversine) für Wasser-Fallback
+function luftlinieKm(aCoord, bCoord){
+  const R = 6371;
+  const toRad = deg => deg * Math.PI / 180;
+  const dLat = toRad(bCoord.lat - aCoord.lat);
+  const dLon = toRad(bCoord.lon - aCoord.lon);
+  const lat1 = toRad(aCoord.lat);
+  const lat2 = toRad(bCoord.lat);
+
+  const h = Math.sin(dLat/2)**2 +
+            Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+  const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1-h));
+  return R * c;
+}
+
 async function showRoute(a,b){
   const url = `https://router.project-osrm.org/route/v1/driving/${a.coord.lon},${a.coord.lat};${b.coord.lon},${b.coord.lat}?overview=full&geometries=geojson`;
-  const res = await fetch(url);
-  const data = await res.json();
-  if(data.routes && data.routes.length){
-    const route = data.routes[0];
-    const dist = (route.distance/1000).toFixed(1);
-    const durationMin = route.duration/60;
-    const hours = Math.floor(durationMin/60);
-    const minutes = Math.round(durationMin%60);
-    const durationStr = hours>0?`${hours}h ${minutes}min`:`${minutes}min`;
-    const coords = route.geometry.coordinates.map(c=>[c[1],c[0]]);
+  let routeGefunden = false;
+
+  try {
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      if(data.routes && data.routes.length){
+        const route = data.routes[0];
+        const dist = (route.distance/1000).toFixed(1);
+        const durationMin = route.duration/60;
+        const hours = Math.floor(durationMin/60);
+        const minutes = Math.round(durationMin%60);
+        const durationStr = hours>0?`${hours}h ${minutes}min`:`${minutes}min`;
+        const coords = route.geometry.coordinates.map(c=>[c[1],c[0]]);
+
+        const useSack = sackFilterAktiv();
+        const firmeneintrag = werke.find(w => w.firma === a.label || w.firma === b.label);
+        const firmenPreis = firmeneintrag
+          ? (useSack ? firmeneintrag.preisSack : firmeneintrag.preis)
+          : 0;
+
+        const preisProKm = parseFloat(dist) < 250 ? 2.15 : 1.85;
+        const teilstrecke = parseFloat(dist) / 24;
+        const berechnung = teilstrecke * preisProKm;
+        const gesamt = ((berechnung + (firmenPreis||0)) * 1.05).toFixed(2);
+
+        if(routeLine) map.removeLayer(routeLine);
+        routeLine = L.polyline(coords,{color:'blue',weight:5,opacity:0.8}).addTo(map);
+        const mid = coords[Math.floor(coords.length/2)];
+        L.popup().setLatLng(mid).setContent(`
+          <b>Route:</b> ${a.label} ↔ ${b.label}<br>
+          <b>Entfernung:</b> ${dist} km (Straße)<br>
+          <b>Dauer:</b> ${durationStr}<br>
+          <b>Preis pro km:</b> ${preisProKm.toFixed(2)} €<br>
+          <b>${useSack ? "Sackware-Preis" : "Werkspreis"}:</b> ${(firmenPreis||0).toFixed(2)} €<br>
+          <b>Gesamtkosten:</b> <span style="color:green;font-size:1.1em">${gesamt} €</span>
+        `).openOn(map);
+        map.fitBounds(routeLine.getBounds(),{padding:[40,40]});
+        routeGefunden = true;
+      }
+    }
+  } catch (e) {
+    console.warn("OSRM Fehler:", e);
+  }
+
+  // NEU: Wasser-Fallback – keine Straßenroute -> gepunktete Luftlinie
+  if (!routeGefunden) {
+    const distNum = luftlinieKm(a.coord, b.coord);
+    const dist = distNum.toFixed(1);
 
     const useSack = sackFilterAktiv();
     const firmeneintrag = werke.find(w => w.firma === a.label || w.firma === b.label);
@@ -579,31 +627,44 @@ async function showRoute(a,b){
       ? (useSack ? firmeneintrag.preisSack : firmeneintrag.preis)
       : 0;
 
-    const preisProKm = parseFloat(dist) < 250 ? 2.15 : 1.85;
-    const teilstrecke = parseFloat(dist) / 24;
+    const preisProKm = distNum < 250 ? 2.15 : 1.85;
+    const teilstrecke = distNum / 24;
     const berechnung = teilstrecke * preisProKm;
     const gesamt = ((berechnung + (firmenPreis||0)) * 1.05).toFixed(2);
 
+    const coords = [
+      [a.coord.lat, a.coord.lon],
+      [b.coord.lat, b.coord.lon]
+    ];
+
     if(routeLine) map.removeLayer(routeLine);
-    routeLine = L.polyline(coords,{color:'blue',weight:5,opacity:0.8}).addTo(map);
-    const mid = coords[Math.floor(coords.length/2)];
-    L.popup().setLatLng(mid).setContent(`
+    routeLine = L.polyline(coords,{
+      color:'blue',
+      weight:4,
+      opacity:0.9,
+      dashArray:'8 8'   // gepunktete/gestrichelte Linie über Wasser
+    }).addTo(map);
+
+    const midLat = (a.coord.lat + b.coord.lat)/2;
+    const midLon = (a.coord.lon + b.coord.lon)/2;
+
+    L.popup().setLatLng([midLat, midLon]).setContent(`
       <b>Route:</b> ${a.label} ↔ ${b.label}<br>
-      <b>Entfernung:</b> ${dist} km<br>
-      <b>Dauer:</b> ${durationStr}<br>
+      <b>Entfernung:</b> ${dist} km (Luftlinie / Wasserstrecke)<br>
       <b>Preis pro km:</b> ${preisProKm.toFixed(2)} €<br>
       <b>${useSack ? "Sackware-Preis" : "Werkspreis"}:</b> ${(firmenPreis||0).toFixed(2)} €<br>
-      <b>Gesamtkosten:</b> <span style="color:green;font-size:1.1em">${gesamt} €</span>
+      <b>Gesamtkosten (geschätzt):</b> <span style="color:green;font-size:1.1em">${gesamt} €</span><br>
+      <small>Keine Straßenroute verfügbar, daher Luftlinie (z.B. über Wasser) als gepunktete Strecke.</small>
     `).openOn(map);
+
     map.fitBounds(routeLine.getBounds(),{padding:[40,40]});
-  } else alert("Keine Route gefunden!");
+  }
 }
 
-// Klick auf „leere“ Karte entfernt Strecke & Popup, aber Marker/Routeklick bleibt normal
+// Klick auf leere Karte entfernt Strecke & Popup
 map.on('click', (e) => {
   const t = e.originalEvent && e.originalEvent.target;
   if (t && t.closest) {
-    // Wenn auf Marker, Popup oder Linie geklickt -> nichts machen
     if (t.closest('.leaflet-marker-icon') ||
         t.closest('.leaflet-popup') ||
         t.closest('.leaflet-interactive')) {
@@ -621,15 +682,12 @@ map.on('click', (e) => {
 // globale Change-Listener
 document.addEventListener("change", e => {
   if (e.target && e.target.matches('input[type="checkbox"]')) {
-    // wenn es eine der Länder-Checkboxen ist:
     if (e.target.classList.contains("countryChk")) {
-      // wenn "Alle" angeklickt wird -> alle anderen aus
       if (e.target.value === "all" && e.target.checked) {
         document.querySelectorAll(".countryChk").forEach(ch => {
           if (ch.value !== "all") ch.checked = false;
         });
       } else if (e.target.value !== "all" && e.target.checked) {
-        // wenn ein Land angehakt wird -> "Alle" aus
         const allChk = document.querySelector('.countryChk[value="all"]');
         allChk.checked = false;
       }
