@@ -212,10 +212,11 @@ const lilaDreieck = L.divIcon({
   iconAnchor: [12,22],
   popupAnchor: [0,-20]
 });
+// Sonstige Kunden: ORANGE
 const orangeDreieck = L.divIcon({
   className: "custom-triangle-orange",
   html: `<svg width="24" height="24" viewBox="0 0 24 24">
-           <polygon points="12,2 22,22 2,22" fill="white" stroke="black" stroke-width="2"/>
+           <polygon points="12,2 22,22 2,22" fill="orange" stroke="black" stroke-width="1"/>
          </svg>`,
   iconAnchor: [12,22],
   popupAnchor: [0,-20]
@@ -228,7 +229,7 @@ let werke = [], kunden = [], alleMarker = [], selectedPoints = [], routeLine = n
 let avgPriceByCountry = {};
 let searchResultMarker = null;
 
-// NEU: Länderflächen
+// Länderflächen
 let countryGeoJson = null;
 let countryLayer = null;
 
@@ -485,9 +486,10 @@ function updateCountryButtonLabel() {
   }
 }
 
-// NEU: GeoJSON laden + Länder einfärben
+// GeoJSON für Länder laden
 async function ensureCountryGeoJsonLoaded() {
   if (countryGeoJson) return;
+  // Welt-Länder-GeoJSON (öffentlich)
   const resp = await fetch("https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json");
   countryGeoJson = await resp.json();
 }
@@ -516,12 +518,12 @@ function getCountryStyleForAvg(avg){
     color: borderColor,
     weight: 2,
     fillColor: fillColor,
-    fillOpacity: 0.25   // transparentes Inneres
+    fillOpacity: 0.25
   };
 }
 
 async function showCountryAveragePolygons(){
-  // Marker entfernen
+  // Marker ausblenden
   alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
 
   await ensureCountryGeoJsonLoaded();
@@ -568,7 +570,6 @@ function hideCountryPolygons(){
 }
 
 async function updateLayers(){
-  // immer zuerst Länderflächen weg
   hideCountryPolygons();
 
   alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
@@ -594,7 +595,7 @@ async function updateLayers(){
   const want15kg      = document.getElementById("chkSack15kg").checked;
   const useSack       = (wantFireflies || want15kg);
 
-  // NEU: wenn ALLE Marker-Checkboxen aus sind -> Länderübersicht
+  // Wenn ALLE Marker-Checkboxen AUS sind -> Länderansicht
   const anyMarkerCheckboxOn =
     gruen || orange || rot || grau ||
     kundenFlag || sackKundenFlag || sonstigeFlag;
