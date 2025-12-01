@@ -163,7 +163,9 @@
 <script>
 const map = L.map("map").setView([51, 11], 5);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  minZoom: 4, maxZoom: 10, attribution: "&copy; OpenStreetMap"
+  minZoom: 4,
+  maxZoom: 18,              // ← HIER erhöht, damit man näher ranzoomen kann
+  attribution: "&copy; OpenStreetMap"
 }).addTo(map);
 
 function colorForPrice(p, keinPreis) {
