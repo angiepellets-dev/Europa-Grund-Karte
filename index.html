@@ -233,6 +233,28 @@ let searchResultMarker = null;
 let countryGeoJson = null;
 let countryLayer = null;
 
+// Mapping von Ländernamen (GeoJSON) -> Ländercode wie Nominatim / deine Filter
+const countryNameToCode = {
+  "germany": "de",
+  "bundesrepublik deutschland": "de",
+  "austria": "at",
+  "republic of austria": "at",
+  "poland": "pl",
+  "republic of poland": "pl",
+  "czech republic": "cz",
+  "czechia": "cz",
+  "france": "fr",
+  "french republic": "fr",
+  "switzerland": "ch",
+  "swiss confederation": "ch",
+  "belgium": "be",
+  "kingdom of belgium": "be",
+  "slovakia": "sk",
+  "slovak republic": "sk",
+  "italy": "it",
+  "italian republic": "it"
+};
+
 function parseFirmenWithHeader(rows){
   const lc = (s)=>String(s||"").toLowerCase();
   const keys = Object.keys(rows[0]||{});
@@ -545,22 +567,26 @@ async function showCountryAveragePolygons(){
   countryLayer = L.geoJSON(countryGeoJson, {
     filter: function(feature){
       const props = feature.properties || {};
-      const code = String(props.ISO_A2 || props.iso_a2 || props.ISO2 || "").toLowerCase();
+      const nameRaw = (props.name || props.ADMIN || "").toLowerCase();
+      const code = countryNameToCode[nameRaw];
+      if (!code) return false;
       if (!relevant.includes(code)) return false;
       if (noCountryFilter) return true;
       return selectedCountries.includes(code);
     },
     style: function(feature){
       const props = feature.properties || {};
-      const code = String(props.ISO_A2 || props.iso_a2 || props.ISO2 || "").toLowerCase();
+      const nameRaw = (props.name || props.ADMIN || "").toLowerCase();
+      const code = countryNameToCode[nameRaw];
       const avg = avgPriceByCountry[code];
       return getCountryStyleForAvg(avg);
     },
     onEachFeature: function(feature, layer){
       const props = feature.properties || {};
-      const code = String(props.ISO_A2 || props.iso_a2 || props.ISO2 || "").toLowerCase();
+      const nameRaw = (props.name || props.ADMIN || "").toLowerCase();
+      const code = countryNameToCode[nameRaw];
       const avg = avgPriceByCountry[code];
-      const name = props.name || props.ADMIN || code.toUpperCase();
+      const name = props.name || props.ADMIN || (code ? code.toUpperCase() : "");
       const avgTxt = avg && isFinite(avg) ? avg.toFixed(2) + " €" : "keine Daten";
       layer.bindTooltip(`<b>${name}</b><br>Durchschnittspreis: ${avgTxt}`, {sticky:true});
     }
