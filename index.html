@@ -123,6 +123,12 @@
       <label><input type="checkbox" class="countryChk" value="ch"> Schweiz</label>
       <label><input type="checkbox" class="countryChk" value="se"> Schweden</label>
       <label><input type="checkbox" class="countryChk" value="dk"> Dänemark</label>
+      <label><input type="checkbox" class="countryChk" value="fi"> Finnland</label>
+      <label><input type="checkbox" class="countryChk" value="nl"> Niederlande</label>
+      <label><input type="checkbox" class="countryChk" value="lv"> Lettland</label>
+      <label><input type="checkbox" class="countryChk" value="lt"> Litauen</label>
+      <label><input type="checkbox" class="countryChk" value="ee"> Estland</label>
+      <label><input type="checkbox" class="countryChk" value="gb"> United Kingdom</label>
       <label><input type="checkbox" class="countryChk" value="be"> Belgien</label>
       <label><input type="checkbox" class="countryChk" value="sk"> Slowakei</label>
       <label><input type="checkbox" class="countryChk" value="it"> Italien</label>
@@ -214,7 +220,6 @@ const lilaDreieck = L.divIcon({
   iconAnchor: [12,22],
   popupAnchor: [0,-20]
 });
-// Sonstige Kunden: orange
 const orangeDreieck = L.divIcon({
   className: "custom-triangle-orange",
   html: `<svg width="24" height="24" viewBox="0 0 24 24">
@@ -253,6 +258,19 @@ const countryNameToCode = {
   "kingdom of sweden": "se",
   "denmark": "dk",
   "kingdom of denmark": "dk",
+  "finland": "fi",
+  "republic of finland": "fi",
+  "netherlands": "nl",
+  "kingdom of the netherlands": "nl",
+  "latvia": "lv",
+  "republic of latvia": "lv",
+  "lithuania": "lt",
+  "republic of lithuania": "lt",
+  "estonia": "ee",
+  "republic of estonia": "ee",
+  "united kingdom": "gb",
+  "united kingdom of great britain and northern ireland": "gb",
+  "great britain": "gb",
   "belgium": "be",
   "kingdom of belgium": "be",
   "slovakia": "sk",
@@ -519,11 +537,17 @@ function updateCountryButtonLabel() {
       ch:"CH",
       se:"SE",
       dk:"DK",
+      fi:"FI",
+      nl:"NL",
+      lv:"LV",
+      lt:"LT",
+      ee:"EE",
+      gb:"UK",
       be:"BE",
       sk:"SK",
       it:"IT"
     };
-    btn.textContent = selected.map(c => names[c] || c).join(", ");
+    btn.textContent = selected.map(c => names[c] || c.toUpperCase()).join(", ");
   }
 }
 
@@ -568,7 +592,6 @@ function getCountryStyleForAvg(avg){
 }
 
 async function showCountryAveragePolygons(){
-  // Marker ausblenden
   alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
 
   await ensureCountryGeoJsonLoaded();
@@ -581,7 +604,11 @@ async function showCountryAveragePolygons(){
 
   const selectedCountries = getSelectedCountries();
   const noCountryFilter = selectedCountries.length === 1 && selectedCountries[0] === "all";
-  const relevant = ["de","at","pl","cz","fr","ch","se","dk","be","sk","it"];
+
+  const relevant = [
+    "de","at","pl","cz","fr","ch","se","dk","fi",
+    "nl","lv","lt","ee","gb","be","sk","it"
+  ];
 
   countryLayer = L.geoJSON(countryGeoJson, {
     filter: function(feature){
@@ -645,7 +672,6 @@ async function updateLayers(){
   const want15kg      = document.getElementById("chkSack15kg").checked;
   const useSack       = (wantFireflies || want15kg);
 
-  // Wenn ALLE 7 Marker-Checkboxen AUS sind -> Länderansicht
   const anyMarkerCheckboxOn =
     gruen || orange || rot || grau ||
     kundenFlag || sackKundenFlag || sonstigeFlag;
@@ -656,7 +682,6 @@ async function updateLayers(){
   }
 
   for(const m of alleMarker){
-    // Pellethändler
     if(m.type === "kunde"){
       if (kundenFlag) {
         if (noCountryFilter || (m.country_code && selectedCountries.includes(m.country_code))) {
@@ -665,7 +690,6 @@ async function updateLayers(){
       }
       continue;
     }
-    // Sackwaren Händler
     if(m.type === "sackkunde"){
       if (sackKundenFlag) {
         if (noCountryFilter || (m.country_code && selectedCountries.includes(m.country_code))) {
@@ -674,7 +698,6 @@ async function updateLayers(){
       }
       continue;
     }
-    // Sonstige Kunden
     if(m.type === "sonstige"){
       if (sonstigeFlag) {
         if (noCountryFilter || (m.country_code && selectedCountries.includes(m.country_code))) {
@@ -684,7 +707,6 @@ async function updateLayers(){
       continue;
     }
 
-    // Firmen
     if (useSack) {
       const sNorm = (m.sack||"").toLowerCase().replace(/\s+/g,' ').trim();
       const hasFireflies = sNorm.includes("fireflies");
