@@ -121,6 +121,7 @@
       <label><input type="checkbox" class="countryChk" value="cz"> Tschechien</label>
       <label><input type="checkbox" class="countryChk" value="fr"> Frankreich</label>
       <label><input type="checkbox" class="countryChk" value="ch"> Schweiz</label>
+      <label><input type="checkbox" class="countryChk" value="se"> Schweden</label>
       <label><input type="checkbox" class="countryChk" value="be"> Belgien</label>
       <label><input type="checkbox" class="countryChk" value="sk"> Slowakei</label>
       <label><input type="checkbox" class="countryChk" value="it"> Italien</label>
@@ -247,6 +248,8 @@ const countryNameToCode = {
   "french republic": "fr",
   "switzerland": "ch",
   "swiss confederation": "ch",
+  "sweden": "se",
+  "kingdom of sweden": "se",
   "belgium": "be",
   "kingdom of belgium": "be",
   "slovakia": "sk",
@@ -504,7 +507,18 @@ function updateCountryButtonLabel() {
   if (selected.length === 1 && selected[0] === "all") {
     btn.textContent = "Alle Länder";
   } else {
-    const names = { de:"DE",at:"AT",pl:"PL",cz:"CZ",fr:"FR",ch:"CH",be:"BE",sk:"SK",it:"IT" };
+    const names = {
+      de:"DE",
+      at:"AT",
+      pl:"PL",
+      cz:"CZ",
+      fr:"FR",
+      ch:"CH",
+      se:"SE",
+      be:"BE",
+      sk:"SK",
+      it:"IT"
+    };
     btn.textContent = selected.map(c => names[c] || c).join(", ");
   }
 }
@@ -563,7 +577,7 @@ async function showCountryAveragePolygons(){
 
   const selectedCountries = getSelectedCountries();
   const noCountryFilter = selectedCountries.length === 1 && selectedCountries[0] === "all";
-  const relevant = ["de","at","pl","cz","fr","ch","be","sk","it"];
+  const relevant = ["de","at","pl","cz","fr","ch","se","be","sk","it"];
 
   countryLayer = L.geoJSON(countryGeoJson, {
     filter: function(feature){
