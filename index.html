@@ -164,7 +164,7 @@
 const map = L.map("map").setView([51, 11], 5);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   minZoom: 4,
-  maxZoom: 18,
+  maxZoom: 18,              // ← HIER erhöht, damit man näher ranzoomen kann
   attribution: "&copy; OpenStreetMap"
 }).addTo(map);
 
@@ -222,10 +222,9 @@ const sheetUrlFirmen = "https://docs.google.com/spreadsheets/d/1f1oD1TlYWPRbD12d
 const sheetUrlKunden = "https://docs.google.com/spreadsheets/d/1DaiLyZbhJkdSQ1PHbJQmguIrDnGrrhiAVgJC4PJO8vA/export?format=csv&gid=0";
 
 let werke = [], kunden = [], alleMarker = [], selectedPoints = [], routeLine = null;
+
 // Durchschnittspreise pro Land (Werkspreis)
 let avgPriceByCountry = {};
-// Suchmarker für freie Ort-/Ländersuche
-let searchResultMarker = null;
 
 function parseFirmenWithHeader(rows){
   const lc = (s)=>String(s||"").toLowerCase();
@@ -432,8 +431,6 @@ async function buildMap(){
     alleMarker.push({
       type: isSackOnly ? "sackkunde" : "kunde",
       marker:m,
-      name: k.name,
-      ort: k.ort,
       country_code: (c.country_code || "")
     });
 
@@ -472,7 +469,7 @@ function updateCountryButtonLabel() {
       ch: "CH",
       be: "BE",
       sk: "SK",
-      it: "IT"
+      it: "IT"   // NEU: Italien-Kürzel
     };
     btn.textContent = selected.map(c => names[c] || c).join(", ");
   }
@@ -731,66 +728,19 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// ERWEITERTE SUCHE: Firma, Kunde, Ort ODER freier Ort / Land
-document.getElementById("searchInput").addEventListener("keydown", async e => {
-  if (e.key === "Enter") {
-    const raw = e.target.value.trim();
-    const query = raw.toLowerCase();
-    if (!query) return;
-
-    // 1) Zuerst in bestehenden Markern suchen (Firma, Kunde, Ort, Tooltip)
-    let treffer = alleMarker.find(m => {
-      const tooltipContent = (m.marker.getTooltip && m.marker.getTooltip().getContent)
-        ? String(m.marker.getTooltip().getContent()).toLowerCase()
-        : "";
-
-      const name = (m.firma || m.name || "").toLowerCase();
-      const ort  = (m.ort   || "").toLowerCase();
-
-      return tooltipContent.includes(query) || name.includes(query) || ort.includes(query);
-    });
-
-    if (treffer) {
+document.getElementById("searchInput").addEventListener("keydown", e => {
+  if(e.key === "Enter"){
+    const query = e.target.value.toLowerCase().trim();
+    if(!query) return;
+    const treffer = alleMarker.find(m =>
+      m.marker.getTooltip && m.marker.getTooltip().getContent &&
+      String(m.marker.getTooltip().getContent()).toLowerCase().includes(query)
+    );
+    if(treffer){
       const latlng = treffer.marker.getLatLng();
-      if (!map.hasLayer(treffer.marker)) {
-        map.addLayer(treffer.marker);
-      }
-      map.setView(latlng, 9);
-      if (treffer.marker.openTooltip) {
-        treffer.marker.openTooltip();
-      }
-      return;
-    }
-
-    // 2) Wenn kein Marker gefunden: Ort/Land per Geocoding suchen
-    try {
-      const geo = await geocode(raw);
-      if (geo) {
-        const latlng = [geo.lat, geo.lon];
-
-        // alten Suchmarker entfernen
-        if (searchResultMarker && map.hasLayer(searchResultMarker)) {
-          map.removeLayer(searchResultMarker);
-        }
-
-        searchResultMarker = L.circleMarker(latlng, {
-          radius: 8,
-          color: 'blue',
-          fillColor: 'blue',
-          fillOpacity: 0.5
-        }).addTo(map);
-
-        const countryText = geo.country ? `<br>${geo.country}` : "";
-        searchResultMarker.bindPopup(`<b>${raw}</b>${countryText}`).openPopup();
-
-        map.setView(latlng, 6);
-      } else {
-        alert("Kein Treffer gefunden.");
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Kein Treffer gefunden.");
-    }
+      map.setView(latlng,9);
+      treffer.marker.openTooltip();
+    } else alert("Kein Treffer gefunden.");
   }
 });
 
