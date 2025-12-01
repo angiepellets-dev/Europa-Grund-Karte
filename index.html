@@ -128,7 +128,6 @@
       <label><input type="checkbox" class="countryChk" value="ch"> Schweiz</label>
       <label><input type="checkbox" class="countryChk" value="be"> Belgien</label>
       <label><input type="checkbox" class="countryChk" value="sk"> Slowakei</label>
-      <!-- NEU: Italien -->
       <label><input type="checkbox" class="countryChk" value="it"> Italien</label>
     </div>
   </div>
@@ -222,9 +221,7 @@ const sheetUrlFirmen = "https://docs.google.com/spreadsheets/d/1f1oD1TlYWPRbD12d
 const sheetUrlKunden = "https://docs.google.com/spreadsheets/d/1DaiLyZbhJkdSQ1PHbJQmguIrDnGrrhiAVgJC4PJO8vA/export?format=csv&gid=0";
 
 let werke = [], kunden = [], alleMarker = [], selectedPoints = [], routeLine = null;
-// Durchschnittspreise pro Land (Werkspreis)
 let avgPriceByCountry = {};
-// Suchmarker für freie Ort-/Ländersuche
 let searchResultMarker = null;
 
 function parseFirmenWithHeader(rows){
@@ -339,7 +336,6 @@ function sackFilterAktiv(){
   return (wantFireflies || want15kg);
 }
 
-// Durchschnittspreise pro Land berechnen (Werkspreis)
 function berechneDurchschnittProLand(){
   const sums = {};
   const counts = {};
@@ -446,7 +442,6 @@ async function buildMap(){
   updateLayers();
 }
 
-// Länder-Filter
 function getSelectedCountries() {
   const chks = document.querySelectorAll(".countryChk");
   const selected = [];
@@ -502,7 +497,6 @@ function updateLayers(){
   const useSack       = (wantFireflies || want15kg);
 
   for(const m of alleMarker){
-    // Kunden
     if(m.type === "kunde"){
       if (kundenFlag) {
         if (noCountryFilter || (m.country_code && selectedCountries.includes(m.country_code))) {
@@ -520,7 +514,6 @@ function updateLayers(){
       continue;
     }
 
-    // Firmen
     if (useSack) {
       const sNorm = (m.sack||"").toLowerCase().replace(/\s+/g,' ').trim();
       const hasFireflies = sNorm.includes("fireflies");
@@ -574,7 +567,6 @@ function handleMarkerClick(label,coord){
   }
 }
 
-// einfache Luftlinie (Haversine) für Wasser-Fallback
 function luftlinieKm(aCoord, bCoord){
   const R = 6371;
   const toRad = deg => deg * Math.PI / 180;
@@ -636,7 +628,6 @@ async function showRoute(a,b){
     console.warn("OSRM Fehler:", e);
   }
 
-  // Wasser-Fallback – keine Straßenroute -> gepunktete Luftlinie
   if (!routeGefunden) {
     const distNum = luftlinieKm(a.coord, b.coord);
     const dist = distNum.toFixed(1);
@@ -681,7 +672,6 @@ async function showRoute(a,b){
   }
 }
 
-// Klick auf leere Karte entfernt Strecke & Popup
 map.on('click', (e) => {
   const t = e.originalEvent && e.originalEvent.target;
   if (t && t.closest) {
@@ -699,7 +689,6 @@ map.on('click', (e) => {
   map.closePopup();
 });
 
-// globale Change-Listener
 document.addEventListener("change", e => {
   if (e.target && e.target.matches('input[type="checkbox"]')) {
     if (e.target.classList.contains("countryChk")) {
@@ -717,13 +706,11 @@ document.addEventListener("change", e => {
   }
 });
 
-// dropdown auf/zu
 document.getElementById("countryDropdownBtn").addEventListener("click", () => {
   const menu = document.getElementById("countryDropdownMenu");
   menu.style.display = (menu.style.display === "block") ? "none" : "block";
 });
 
-// außerhalb klicken -> zu
 document.addEventListener("click", (e) => {
   const dd = document.getElementById("countryDropdown");
   if (!dd.contains(e.target)) {
@@ -731,22 +718,31 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// ERWEITERTE SUCHE + als erster Routenpunkt nutzbar
+/* SUCHE:
+   - alle Firmen/Kunden zeigen, deren Name/Ort passt
+   - zusätzlich Ort als blauen Kreis anzeigen
+   - blauer Kreis = erster Routenpunkt, dann Werk/Kunde anklicken
+*/
 document.getElementById("searchInput").addEventListener("keydown", async e => {
   if (e.key === "Enter") {
     const raw = e.target.value.trim();
     const query = raw.toLowerCase();
     if (!query) return;
 
-    // bestehende Route und Auswahl zurücksetzen
+    // Route & alte Suche zurücksetzen
     if (routeLine) {
       map.removeLayer(routeLine);
       routeLine = null;
     }
     selectedPoints = [];
 
-    // 1) Zuerst in bestehenden Markern suchen (Firma, Kunde, Ort, Tooltip)
-    let treffer = alleMarker.find(m => {
+    if (searchResultMarker && map.hasLayer(searchResultMarker)) {
+      map.removeLayer(searchResultMarker);
+      searchResultMarker = null;
+    }
+
+    // 1) Alle passenden Firmen/Kunden sammeln
+    const matches = alleMarker.filter(m => {
       const tooltipContent = (m.marker.getTooltip && m.marker.getTooltip().getContent)
         ? String(m.marker.getTooltip().getContent()).toLowerCase()
         : "";
@@ -757,34 +753,25 @@ document.getElementById("searchInput").addEventListener("keydown", async e => {
       return tooltipContent.includes(query) || name.includes(query) || ort.includes(query);
     });
 
-    if (treffer) {
-      const latlng = treffer.marker.getLatLng();
-      if (!map.hasLayer(treffer.marker)) {
-        map.addLayer(treffer.marker);
-      }
-      map.setView(latlng, 9);
-      if (treffer.marker.openTooltip) {
-        treffer.marker.openTooltip();
-      }
+    const bounds = L.latLngBounds();
 
-      // Suchpunkt als ersten Routenpunkt setzen (z.B. falls man von dieser Firma losfahren will)
-      selectedPoints.push({
-        label: treffer.firma || treffer.name || raw,
-        coord: { lat: latlng.lat, lon: latlng.lng }
-      });
-      return;
-    }
+    // alle gefundenen Marker anzeigen und Bounds erweitern
+    matches.forEach((m, idx) => {
+      const latlng = m.marker.getLatLng();
+      if (!map.hasLayer(m.marker)) {
+        map.addLayer(m.marker);
+      }
+      bounds.extend(latlng);
+      if (idx === 0 && m.marker.openTooltip) {
+        m.marker.openTooltip();
+      }
+    });
 
-    // 2) Wenn kein Marker gefunden: Ort/Land per Geocoding suchen
+    // 2) Ort/Land geocoden und blauen Kreis hinzufügen (zusätzlich!)
     try {
       const geo = await geocode(raw);
       if (geo) {
         const latlng = [geo.lat, geo.lon];
-
-        // alten Suchmarker entfernen
-        if (searchResultMarker && map.hasLayer(searchResultMarker)) {
-          map.removeLayer(searchResultMarker);
-        }
 
         searchResultMarker = L.circleMarker(latlng, {
           radius: 8,
@@ -795,32 +782,32 @@ document.getElementById("searchInput").addEventListener("keydown", async e => {
 
         const countryText = geo.country ? `<br>${geo.country}` : "";
         searchResultMarker
-          .bindPopup(`<b>${raw}</b>${countryText}<br><small>Jetzt ein Werk anklicken, um Route zu berechnen.</small>`)
+          .bindPopup(`<b>${raw}</b>${countryText}<br><small>Jetzt ein Werk/Kunden anklicken, um Route zu berechnen.</small>`)
           .openPopup();
 
-        map.setView(latlng, 6);
+        bounds.extend(latlng);
 
-        // WICHTIG: Suchort als ersten Routenpunkt vormerken,
-        // der nächste Klick auf eine Firma/Kunde erzeugt die Route.
+        // Suchort als ersten Routenpunkt merken
         selectedPoints.push({
           label: raw,
           coord: { lat: geo.lat, lon: geo.lon }
         });
 
-        // optional: Suchmarker auch klickbar machen (falls man ihn nochmal auswählen will)
         searchResultMarker.on("click", () => {
-          // wenn du z.B. eine neue Route starten willst:
           selectedPoints = [{
             label: raw,
             coord: { lat: geo.lat, lon: geo.lon }
           }];
         });
-
-      } else {
-        alert("Kein Treffer gefunden.");
       }
     } catch (err) {
       console.error(err);
+    }
+
+    // 3) Karte passend zoomen
+    if (bounds.isValid()) {
+      map.fitBounds(bounds.pad(0.2));
+    } else if (!matches.length) {
       alert("Kein Treffer gefunden.");
     }
   }
