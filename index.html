@@ -10,21 +10,18 @@
     html,body{height:100%;margin:0}
     #map{width:100%;height:100%}
 
-    /* Grundboxen */
     .legend, .cert-box {
       position:absolute;background:#fff;padding:8px 10px;
       border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.12);
       font:14px/1.3 system-ui,Arial,sans-serif;
     }
 
-    /* Zertifikate-Box unten links */
     .cert-box{
       bottom:12px;
       left:12px;
       z-index:1000;
     }
 
-    /* Legende unten rechts */
     .legend{
       bottom:12px;
       right:12px;
@@ -51,7 +48,6 @@
     }
     .cert-box hr{border:none;height:1px;background:#eee;margin:6px 0}
 
-    /* custom dropdown */
     .country-dropdown {
       position: relative;
       display: block;
@@ -154,7 +150,8 @@
   <label><input type="checkbox" id="chkRot" checked> 🔴 ≥ 285 €</label><br>
   <label><input type="checkbox" id="chkGrau" checked> ⚪ kein Preis</label><br>
   <label><input type="checkbox" id="chkKunden" checked> 🔷 Pellethändler</label><br>
-  <label><input type="checkbox" id="chkSackKunden" checked> 🟣 Sackwaren Händler</label>
+  <label><input type="checkbox" id="chkSackKunden" checked> 🟣 Sackwaren Händler</label><br>
+  <label><input type="checkbox" id="chkSonstigeKunden" checked> 🔶 Sonstige Kunden</label>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -211,6 +208,14 @@ const lilaDreieck = L.divIcon({
   className: "custom-triangle-purple",
   html: `<svg width="24" height="24" viewBox="0 0 24 24">
            <polygon points="12,2 22,22 2,22" fill="purple" stroke="black" stroke-width="1"/>
+         </svg>`,
+  iconAnchor: [12,22],
+  popupAnchor: [0,-20]
+});
+const orangeDreieck = L.divIcon({
+  className: "custom-triangle-orange",
+  html: `<svg width="24" height="24" viewBox="0 0 24 24">
+           <polygon points="12,2 22,22 2,22" fill="orange" stroke="black" stroke-width="1"/>
          </svg>`,
   iconAnchor: [12,22],
   popupAnchor: [0,-20]
@@ -295,13 +300,15 @@ async function ladeDaten() {
         const ortKey = headers.find(h=>["ort","adresse","standort","anschrift","stadt","location"].includes(h.toLowerCase()))||"ort";
         const loseKey = headers.find(h=>h.toLowerCase()==="lose") || "lose";
         const sackKey = headers.find(h=>h.toLowerCase()==="sackware") || "sackware";
+        const sonstKey = headers.find(h=>h.toLowerCase().includes("sonstige")) || "sonstige";
 
         const kundenDaten = r.data
           .map(x=>({
             name:(x[nameKey]||"").trim(),
             ort:(x[ortKey]||"").trim(),
             lose:(x[loseKey]||"").trim().toLowerCase(),
-            sackware:(x[sackKey]||"").trim().toLowerCase()
+            sackware:(x[sackKey]||"").trim().toLowerCase(),
+            sonstige:(x[sonstKey]||"").trim().toLowerCase()
           }))
           .filter(x=>x.name && x.ort);
 
@@ -374,6 +381,7 @@ async function buildMap(){
   alleMarker = [];
   const bounds=L.latLngBounds();
 
+  // Werke
   for(const w of werke){
     const c=geoCache[w.ort] && geoCache[w.ort].country_code ? geoCache[w.ort] : await geocode(w.ort);
     if(!c)continue;
@@ -411,22 +419,35 @@ async function buildMap(){
     bounds.extend([c.lat,c.lon]);
   }
 
+  // Kunden
   for(const k of kunden){
     const c=geoCache[k.ort] && geoCache[k.ort].country_code ? geoCache[k.ort] : await geocode(k.ort);
     if(!c)continue;
 
     const isSackOnly = (k.sackware === "ja") && (k.lose !== "ja");
-    const iconToUse = isSackOnly ? lilaDreieck : blauesDreieck;
+    const isSonstige = (k.sonstige === "ja");
+
+    let type = "kunde";
+    let iconToUse = blauesDreieck;
+
+    if (isSonstige) {
+      type = "sonstige";
+      iconToUse = orangeDreieck;
+    } else if (isSackOnly) {
+      type = "sackkunde";
+      iconToUse = lilaDreieck;
+    }
 
     const m=L.marker([c.lat,c.lon],{icon:iconToUse})
       .bindTooltip(`<b>${k.name}</b><br>${k.ort}`,{sticky:true})
       .on("click",()=>handleMarkerClick(k.name,c));
 
     alleMarker.push({
-      type: isSackOnly ? "sackkunde" : "kunde",
+      type,
       marker:m,
       name: k.name,
       ort: k.ort,
+      sonstige: k.sonstige,
       country_code: (c.country_code || "")
     });
 
@@ -478,12 +499,14 @@ function updateLayers(){
   const grau       = document.getElementById("chkGrau").checked;
   const kundenFlag = document.getElementById("chkKunden").checked;
   const sackKundenFlag = document.getElementById("chkSackKunden").checked;
+  const sonstigeFlag = document.getElementById("chkSonstigeKunden").checked;
 
   const wantFireflies = document.getElementById("chkSackFireflies").checked;
   const want15kg      = document.getElementById("chkSack15kg").checked;
   const useSack       = (wantFireflies || want15kg);
 
   for(const m of alleMarker){
+    // Pellethändler
     if(m.type === "kunde"){
       if (kundenFlag) {
         if (noCountryFilter || (m.country_code && selectedCountries.includes(m.country_code))) {
@@ -492,6 +515,7 @@ function updateLayers(){
       }
       continue;
     }
+    // Sackwaren Händler
     if(m.type === "sackkunde"){
       if (sackKundenFlag) {
         if (noCountryFilter || (m.country_code && selectedCountries.includes(m.country_code))) {
@@ -500,7 +524,17 @@ function updateLayers(){
       }
       continue;
     }
+    // Sonstige Kunden
+    if(m.type === "sonstige"){
+      if (sonstigeFlag) {
+        if (noCountryFilter || (m.country_code && selectedCountries.includes(m.country_code))) {
+          map.addLayer(m.marker);
+        }
+      }
+      continue;
+    }
 
+    // Firmen
     if (useSack) {
       const sNorm = (m.sack||"").toLowerCase().replace(/\s+/g,' ').trim();
       const hasFireflies = sNorm.includes("fireflies");
@@ -705,6 +739,7 @@ document.addEventListener("click", (e) => {
   }
 });
 
+// Suche: Firmen/Kunden + Ort, inkl. blauer Suchpunkt als erster Routenpunkt
 document.getElementById("searchInput").addEventListener("keydown", async e => {
   if (e.key === "Enter") {
     const raw = e.target.value.trim();
@@ -760,7 +795,7 @@ document.getElementById("searchInput").addEventListener("keydown", async e => {
 
         const countryText = geo.country ? `<br>${geo.country}` : "";
         searchResultMarker
-          .bindPopup(`<b>${raw}</b>${countryText}<br><small>Jetzt ein Werk/Kunden anklicken, um Route zu berechnen.</small>`)
+          .bindPopup(`<b>${raw}</b>${countryText}<br><small>Jetzt ein Werk/Händler anklicken, um Route zu berechnen.</small>`)
           .openPopup();
 
         bounds.extend(latlng);
