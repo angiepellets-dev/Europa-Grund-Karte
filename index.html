@@ -731,12 +731,19 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// ERWEITERTE SUCHE: Firma, Kunde, Ort ODER freier Ort / Land
+// ERWEITERTE SUCHE + als erster Routenpunkt nutzbar
 document.getElementById("searchInput").addEventListener("keydown", async e => {
   if (e.key === "Enter") {
     const raw = e.target.value.trim();
     const query = raw.toLowerCase();
     if (!query) return;
+
+    // bestehende Route und Auswahl zurücksetzen
+    if (routeLine) {
+      map.removeLayer(routeLine);
+      routeLine = null;
+    }
+    selectedPoints = [];
 
     // 1) Zuerst in bestehenden Markern suchen (Firma, Kunde, Ort, Tooltip)
     let treffer = alleMarker.find(m => {
@@ -759,6 +766,12 @@ document.getElementById("searchInput").addEventListener("keydown", async e => {
       if (treffer.marker.openTooltip) {
         treffer.marker.openTooltip();
       }
+
+      // Suchpunkt als ersten Routenpunkt setzen (z.B. falls man von dieser Firma losfahren will)
+      selectedPoints.push({
+        label: treffer.firma || treffer.name || raw,
+        coord: { lat: latlng.lat, lon: latlng.lng }
+      });
       return;
     }
 
@@ -781,9 +794,28 @@ document.getElementById("searchInput").addEventListener("keydown", async e => {
         }).addTo(map);
 
         const countryText = geo.country ? `<br>${geo.country}` : "";
-        searchResultMarker.bindPopup(`<b>${raw}</b>${countryText}`).openPopup();
+        searchResultMarker
+          .bindPopup(`<b>${raw}</b>${countryText}<br><small>Jetzt ein Werk anklicken, um Route zu berechnen.</small>`)
+          .openPopup();
 
         map.setView(latlng, 6);
+
+        // WICHTIG: Suchort als ersten Routenpunkt vormerken,
+        // der nächste Klick auf eine Firma/Kunde erzeugt die Route.
+        selectedPoints.push({
+          label: raw,
+          coord: { lat: geo.lat, lon: geo.lon }
+        });
+
+        // optional: Suchmarker auch klickbar machen (falls man ihn nochmal auswählen will)
+        searchResultMarker.on("click", () => {
+          // wenn du z.B. eine neue Route starten willst:
+          selectedPoints = [{
+            label: raw,
+            coord: { lat: geo.lat, lon: geo.lon }
+          }];
+        });
+
       } else {
         alert("Kein Treffer gefunden.");
       }
