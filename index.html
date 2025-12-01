@@ -212,10 +212,12 @@ const lilaDreieck = L.divIcon({
   iconAnchor: [12,22],
   popupAnchor: [0,-20]
 });
+
+/* HIER geändert: weiße Füllung, schwarzer Rand */
 const orangeDreieck = L.divIcon({
   className: "custom-triangle-orange",
   html: `<svg width="24" height="24" viewBox="0 0 24 24">
-           <polygon points="12,2 22,22 2,22" fill="orange" stroke="black" stroke-width="1"/>
+           <polygon points="12,2 22,22 2,22" fill="white" stroke="black" stroke-width="2"/>
          </svg>`,
   iconAnchor: [12,22],
   popupAnchor: [0,-20]
@@ -739,7 +741,7 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// Suche: Firmen/Kunden + Ort, inkl. blauer Suchpunkt als erster Routenpunkt
+// Suche inkl. Ort + Firmen/Händler
 document.getElementById("searchInput").addEventListener("keydown", async e => {
   if (e.key === "Enter") {
     const raw = e.target.value.trim();
