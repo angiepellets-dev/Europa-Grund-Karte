@@ -115,23 +115,23 @@
     <div class="country-dropdown-button" id="countryDropdownBtn">Alle Länder</div>
     <div class="country-dropdown-menu" id="countryDropdownMenu">
       <label><input type="checkbox" class="countryChk" value="all" checked> Alle</label>
-      <label><input type="checkbox" class="countryChk" value="de"> Deutschland</label>
-      <label><input type="checkbox" class="countryChk" value="at"> Österreich</label>
-      <label><input type="checkbox" class="countryChk" value="pl"> Polen</label>
-      <label><input type="checkbox" class="countryChk" value="cz"> Tschechien</label>
-      <label><input type="checkbox" class="countryChk" value="fr"> Frankreich</label>
-      <label><input type="checkbox" class="countryChk" value="ch"> Schweiz</label>
-      <label><input type="checkbox" class="countryChk" value="se"> Schweden</label>
+      <label><input type="checkbox" class="countryChk" value="be"> Belgien</label>
       <label><input type="checkbox" class="countryChk" value="dk"> Dänemark</label>
+      <label><input type="checkbox" class="countryChk" value="de"> Deutschland</label>
+      <label><input type="checkbox" class="countryChk" value="ee"> Estland</label>
       <label><input type="checkbox" class="countryChk" value="fi"> Finnland</label>
-      <label><input type="checkbox" class="countryChk" value="nl"> Niederlande</label>
+      <label><input type="checkbox" class="countryChk" value="fr"> Frankreich</label>
+      <label><input type="checkbox" class="countryChk" value="it"> Italien</label>
       <label><input type="checkbox" class="countryChk" value="lv"> Lettland</label>
       <label><input type="checkbox" class="countryChk" value="lt"> Litauen</label>
-      <label><input type="checkbox" class="countryChk" value="ee"> Estland</label>
-      <label><input type="checkbox" class="countryChk" value="gb"> United Kingdom</label>
-      <label><input type="checkbox" class="countryChk" value="be"> Belgien</label>
+      <label><input type="checkbox" class="countryChk" value="nl"> Niederlande</label>
+      <label><input type="checkbox" class="countryChk" value="at"> Österreich</label>
+      <label><input type="checkbox" class="countryChk" value="pl"> Polen</label>
+      <label><input type="checkbox" class="countryChk" value="se"> Schweden</label>
+      <label><input type="checkbox" class="countryChk" value="ch"> Schweiz</label>
       <label><input type="checkbox" class="countryChk" value="sk"> Slowakei</label>
-      <label><input type="checkbox" class="countryChk" value="it"> Italien</label>
+      <label><input type="checkbox" class="countryChk" value="cz"> Tschechien</label>
+      <label><input type="checkbox" class="countryChk" value="gb"> United Kingdom</label>
     </div>
   </div>
 </div>
@@ -529,23 +529,23 @@ function updateCountryButtonLabel() {
     btn.textContent = "Alle Länder";
   } else {
     const names = {
-      de:"DE",
-      at:"AT",
-      pl:"PL",
-      cz:"CZ",
-      fr:"FR",
-      ch:"CH",
-      se:"SE",
+      be:"BE",
       dk:"DK",
+      de:"DE",
+      ee:"EE",
       fi:"FI",
-      nl:"NL",
+      fr:"FR",
+      it:"IT",
       lv:"LV",
       lt:"LT",
-      ee:"EE",
-      gb:"UK",
-      be:"BE",
+      nl:"NL",
+      at:"AT",
+      pl:"PL",
+      se:"SE",
+      ch:"CH",
       sk:"SK",
-      it:"IT"
+      cz:"CZ",
+      gb:"UK"
     };
     btn.textContent = selected.map(c => names[c] || c.toUpperCase()).join(", ");
   }
