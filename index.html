@@ -233,7 +233,7 @@ let searchResultMarker = null;
 let countryGeoJson = null;
 let countryLayer = null;
 
-// Mapping von Ländernamen (GeoJSON) -> Ländercode wie Nominatim / deine Filter
+// Mapping von Ländernamen (GeoJSON) -> Ländercode
 const countryNameToCode = {
   "germany": "de",
   "bundesrepublik deutschland": "de",
@@ -369,6 +369,7 @@ function sackFilterAktiv(){
   return (wantFireflies || want15kg);
 }
 
+// Durchschnitt pro Land (Werkspreise)
 function berechneDurchschnittProLand(){
   const sums = {};
   const counts = {};
