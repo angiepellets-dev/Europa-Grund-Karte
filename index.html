@@ -212,7 +212,7 @@ const lilaDreieck = L.divIcon({
   iconAnchor: [12,22],
   popupAnchor: [0,-20]
 });
-// Sonstige Kunden: ORANGE
+// Sonstige Kunden: orange
 const orangeDreieck = L.divIcon({
   className: "custom-triangle-orange",
   html: `<svg width="24" height="24" viewBox="0 0 24 24">
@@ -489,9 +489,13 @@ function updateCountryButtonLabel() {
 // GeoJSON für Länder laden
 async function ensureCountryGeoJsonLoaded() {
   if (countryGeoJson) return;
-  // Welt-Länder-GeoJSON (öffentlich)
-  const resp = await fetch("https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json");
-  countryGeoJson = await resp.json();
+  try{
+    const resp = await fetch("https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json");
+    countryGeoJson = await resp.json();
+  }catch(e){
+    console.error("Konnte Länder-GeoJSON nicht laden:", e);
+    alert("Länderflächen konnten nicht geladen werden (GeoJSON-Download).");
+  }
 }
 
 function getCountryStyleForAvg(avg){
@@ -518,7 +522,7 @@ function getCountryStyleForAvg(avg){
     color: borderColor,
     weight: 2,
     fillColor: fillColor,
-    fillOpacity: 0.25
+    fillOpacity: 0.3
   };
 }
 
@@ -527,6 +531,7 @@ async function showCountryAveragePolygons(){
   alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
 
   await ensureCountryGeoJsonLoaded();
+  if (!countryGeoJson) return;
 
   if (countryLayer) {
     map.removeLayer(countryLayer);
@@ -595,7 +600,7 @@ async function updateLayers(){
   const want15kg      = document.getElementById("chkSack15kg").checked;
   const useSack       = (wantFireflies || want15kg);
 
-  // Wenn ALLE Marker-Checkboxen AUS sind -> Länderansicht
+  // Wenn ALLE 7 Marker-Checkboxen AUS sind -> Länderansicht
   const anyMarkerCheckboxOn =
     gruen || orange || rot || grau ||
     kundenFlag || sackKundenFlag || sonstigeFlag;
