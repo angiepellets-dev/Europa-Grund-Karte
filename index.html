@@ -215,7 +215,7 @@ const lilaDreieck = L.divIcon({
 const orangeDreieck = L.divIcon({
   className: "custom-triangle-orange",
   html: `<svg width="24" height="24" viewBox="0 0 24 24">
-           <polygon points="12,2 22,22 2,22" fill="orange" stroke="black" stroke-width="1"/>
+           <polygon points="12,2 22,22 2,22" fill="white" stroke="black" stroke-width="2"/>
          </svg>`,
   iconAnchor: [12,22],
   popupAnchor: [0,-20]
@@ -227,6 +227,10 @@ const sheetUrlKunden = "https://docs.google.com/spreadsheets/d/1DaiLyZbhJkdSQ1PH
 let werke = [], kunden = [], alleMarker = [], selectedPoints = [], routeLine = null;
 let avgPriceByCountry = {};
 let searchResultMarker = null;
+
+// NEU: Länderflächen
+let countryGeoJson = null;
+let countryLayer = null;
 
 function parseFirmenWithHeader(rows){
   const lc = (s)=>String(s||"").toLowerCase();
@@ -481,7 +485,92 @@ function updateCountryButtonLabel() {
   }
 }
 
-function updateLayers(){
+// NEU: GeoJSON laden + Länder einfärben
+async function ensureCountryGeoJsonLoaded() {
+  if (countryGeoJson) return;
+  const resp = await fetch("https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json");
+  countryGeoJson = await resp.json();
+}
+
+function getCountryStyleForAvg(avg){
+  if (!avg || !isFinite(avg)) {
+    return {
+      color: "#555",
+      weight: 1,
+      fillColor: "transparent",
+      fillOpacity: 0
+    };
+  }
+  let fillColor, borderColor;
+  if (avg <= 260) {
+    fillColor = "green";
+    borderColor = "#004400";
+  } else if (avg < 285) {
+    fillColor = "orange";
+    borderColor = "#aa5500";
+  } else {
+    fillColor = "red";
+    borderColor = "#880000";
+  }
+  return {
+    color: borderColor,
+    weight: 2,
+    fillColor: fillColor,
+    fillOpacity: 0.25   // transparentes Inneres
+  };
+}
+
+async function showCountryAveragePolygons(){
+  // Marker entfernen
+  alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
+
+  await ensureCountryGeoJsonLoaded();
+
+  if (countryLayer) {
+    map.removeLayer(countryLayer);
+    countryLayer = null;
+  }
+
+  const selectedCountries = getSelectedCountries();
+  const noCountryFilter = selectedCountries.length === 1 && selectedCountries[0] === "all";
+  const relevant = ["de","at","pl","cz","fr","ch","be","sk","it"];
+
+  countryLayer = L.geoJSON(countryGeoJson, {
+    filter: function(feature){
+      const props = feature.properties || {};
+      const code = String(props.ISO_A2 || props.iso_a2 || props.ISO2 || "").toLowerCase();
+      if (!relevant.includes(code)) return false;
+      if (noCountryFilter) return true;
+      return selectedCountries.includes(code);
+    },
+    style: function(feature){
+      const props = feature.properties || {};
+      const code = String(props.ISO_A2 || props.iso_a2 || props.ISO2 || "").toLowerCase();
+      const avg = avgPriceByCountry[code];
+      return getCountryStyleForAvg(avg);
+    },
+    onEachFeature: function(feature, layer){
+      const props = feature.properties || {};
+      const code = String(props.ISO_A2 || props.iso_a2 || props.ISO2 || "").toLowerCase();
+      const avg = avgPriceByCountry[code];
+      const name = props.name || props.ADMIN || code.toUpperCase();
+      const avgTxt = avg && isFinite(avg) ? avg.toFixed(2) + " €" : "keine Daten";
+      layer.bindTooltip(`<b>${name}</b><br>Durchschnittspreis: ${avgTxt}`, {sticky:true});
+    }
+  }).addTo(map);
+}
+
+function hideCountryPolygons(){
+  if (countryLayer) {
+    map.removeLayer(countryLayer);
+    countryLayer = null;
+  }
+}
+
+async function updateLayers(){
+  // immer zuerst Länderflächen weg
+  hideCountryPolygons();
+
   alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
 
   const selectedCountries = getSelectedCountries();
@@ -504,6 +593,16 @@ function updateLayers(){
   const wantFireflies = document.getElementById("chkSackFireflies").checked;
   const want15kg      = document.getElementById("chkSack15kg").checked;
   const useSack       = (wantFireflies || want15kg);
+
+  // NEU: wenn ALLE Marker-Checkboxen aus sind -> Länderübersicht
+  const anyMarkerCheckboxOn =
+    gruen || orange || rot || grau ||
+    kundenFlag || sackKundenFlag || sonstigeFlag;
+
+  if (!anyMarkerCheckboxOn) {
+    await showCountryAveragePolygons();
+    return;
+  }
 
   for(const m of alleMarker){
     // Pellethändler
