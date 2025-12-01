@@ -90,7 +90,6 @@
       box-sizing:border-box;
     }
 
-    /* symmetrische Ausrichtung der Checkboxen + Text */
     .country-dropdown-menu label {
       display: flex;
       align-items: center;
@@ -147,15 +146,15 @@
   <label><input type="checkbox" id="chkSack15kg"> 15 kg</label>
 </div>
 
-<!-- Legende nur für Farben + Kunden, unten rechts -->
+<!-- Legende unten rechts -->
 <div class="legend">
   <b>Filter Farben</b><br>
   <label><input type="checkbox" id="chkGruen" checked> 🟢 ≤ 260 €</label><br>
   <label><input type="checkbox" id="chkOrange" checked> 🟠 260–285 €</label><br>
   <label><input type="checkbox" id="chkRot" checked> 🔴 ≥ 285 €</label><br>
   <label><input type="checkbox" id="chkGrau" checked> ⚪ kein Preis</label><br>
-  <label><input type="checkbox" id="chkKunden" checked> 🔷 Kunden</label><br>
-  <label><input type="checkbox" id="chkSackKunden" checked> 🟣 Sackwaren-Kunden</label>
+  <label><input type="checkbox" id="chkKunden" checked> 🔷 Pellethändler</label><br>
+  <label><input type="checkbox" id="chkSackKunden" checked> 🟣 Sackwaren Händler</label>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -375,7 +374,6 @@ async function buildMap(){
   alleMarker = [];
   const bounds=L.latLngBounds();
 
-  // Werke
   for(const w of werke){
     const c=geoCache[w.ort] && geoCache[w.ort].country_code ? geoCache[w.ort] : await geocode(w.ort);
     if(!c)continue;
@@ -413,7 +411,6 @@ async function buildMap(){
     bounds.extend([c.lat,c.lon]);
   }
 
-  // Kunden
   for(const k of kunden){
     const c=geoCache[k.ort] && geoCache[k.ort].country_code ? geoCache[k.ort] : await geocode(k.ort);
     if(!c)continue;
@@ -458,17 +455,7 @@ function updateCountryButtonLabel() {
   if (selected.length === 1 && selected[0] === "all") {
     btn.textContent = "Alle Länder";
   } else {
-    const names = {
-      de: "DE",
-      at: "AT",
-      pl: "PL",
-      cz: "CZ",
-      fr: "FR",
-      ch: "CH",
-      be: "BE",
-      sk: "SK",
-      it: "IT"
-    };
+    const names = { de:"DE",at:"AT",pl:"PL",cz:"CZ",fr:"FR",ch:"CH",be:"BE",sk:"SK",it:"IT" };
     btn.textContent = selected.map(c => names[c] || c).join(", ");
   }
 }
@@ -718,18 +705,12 @@ document.addEventListener("click", (e) => {
   }
 });
 
-/* SUCHE:
-   - alle Firmen/Kunden zeigen, deren Name/Ort passt
-   - zusätzlich Ort als blauen Kreis anzeigen
-   - blauer Kreis = erster Routenpunkt, dann Werk/Kunde anklicken
-*/
 document.getElementById("searchInput").addEventListener("keydown", async e => {
   if (e.key === "Enter") {
     const raw = e.target.value.trim();
     const query = raw.toLowerCase();
     if (!query) return;
 
-    // Route & alte Suche zurücksetzen
     if (routeLine) {
       map.removeLayer(routeLine);
       routeLine = null;
@@ -741,7 +722,6 @@ document.getElementById("searchInput").addEventListener("keydown", async e => {
       searchResultMarker = null;
     }
 
-    // 1) Alle passenden Firmen/Kunden sammeln
     const matches = alleMarker.filter(m => {
       const tooltipContent = (m.marker.getTooltip && m.marker.getTooltip().getContent)
         ? String(m.marker.getTooltip().getContent()).toLowerCase()
@@ -755,7 +735,6 @@ document.getElementById("searchInput").addEventListener("keydown", async e => {
 
     const bounds = L.latLngBounds();
 
-    // alle gefundenen Marker anzeigen und Bounds erweitern
     matches.forEach((m, idx) => {
       const latlng = m.marker.getLatLng();
       if (!map.hasLayer(m.marker)) {
@@ -767,7 +746,6 @@ document.getElementById("searchInput").addEventListener("keydown", async e => {
       }
     });
 
-    // 2) Ort/Land geocoden und blauen Kreis hinzufügen (zusätzlich!)
     try {
       const geo = await geocode(raw);
       if (geo) {
@@ -787,7 +765,6 @@ document.getElementById("searchInput").addEventListener("keydown", async e => {
 
         bounds.extend(latlng);
 
-        // Suchort als ersten Routenpunkt merken
         selectedPoints.push({
           label: raw,
           coord: { lat: geo.lat, lon: geo.lon }
@@ -804,7 +781,6 @@ document.getElementById("searchInput").addEventListener("keydown", async e => {
       console.error(err);
     }
 
-    // 3) Karte passend zoomen
     if (bounds.isValid()) {
       map.fitBounds(bounds.pad(0.2));
     } else if (!matches.length) {
