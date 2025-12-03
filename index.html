@@ -393,23 +393,42 @@ function sackFilterAktiv(){
   return (wantFireflies || want15kg);
 }
 
-// Durchschnitt pro Land (Werkspreise)
+/**
+ * Durchschnitt pro Land (Werkspreise):
+ * - Nur Werke mit echtem Preis (keinPreisWerk = false) gehen in die Berechnung.
+ * - Wenn in einem Land IRGENDEIN Werk keinen Preis hat (keinPreisWerk = true
+ *   oder Preis <= 0 / NaN), bekommt dieses Land KEINEN Durchschnittseintrag.
+ */
 function berechneDurchschnittProLand(){
   const sums = {};
   const counts = {};
+  const hasMissing = {};
+  const hasReal = {};
+
   alleMarker.forEach(m => {
     if (m.type !== "firma") return;
     const cc = m.country_code || "";
     if (!cc) return;
+
     const preis = m.preis;
-    if (!isFinite(preis) || preis <= 0) return;
+
+    // fehlender Preis -> Land disqualifiziert
+    if (m.keinPreisWerk || !isFinite(preis) || preis <= 0) {
+      hasMissing[cc] = true;
+      return;
+    }
+
+    hasReal[cc] = true;
     if (!sums[cc]) { sums[cc] = 0; counts[cc] = 0; }
     sums[cc] += preis;
     counts[cc] += 1;
   });
+
   avgPriceByCountry = {};
   Object.keys(sums).forEach(cc => {
-    avgPriceByCountry[cc] = sums[cc] / counts[cc];
+    if (hasReal[cc] && !hasMissing[cc] && counts[cc] > 0) {
+      avgPriceByCountry[cc] = sums[cc] / counts[cc];
+    }
   });
 }
 
@@ -422,7 +441,7 @@ function tooltipHtmlFromMarker(m){
 
   let avgTxt = "";
   const avg = avgPriceByCountry[m.country_code];
-  if (avg && isFinite(avg)) {
+  if (m.country_code && (m.country_code in avgPriceByCountry) && isFinite(avg)) {
     avgTxt = `<br><b>Landesdurchschnitt:</b> ${avg.toFixed(2)} €`;
   }
 
@@ -563,15 +582,8 @@ async function ensureCountryGeoJsonLoaded() {
   }
 }
 
+// Style für Länder mit gültigem Durchschnitt
 function getCountryStyleForAvg(avg){
-  if (!avg || !isFinite(avg)) {
-    return {
-      color: "#555",
-      weight: 1,
-      fillColor: "transparent",
-      fillOpacity: 0
-    };
-  }
   let fillColor, borderColor;
   if (avg <= 260) {
     fillColor = "green";
@@ -617,6 +629,11 @@ async function showCountryAveragePolygons(){
       const code = countryNameToCode[nameRaw];
       if (!code) return false;
       if (!relevant.includes(code)) return false;
+
+      if (!(code in avgPriceByCountry)) return false;
+      const avg = avgPriceByCountry[code];
+      if (!isFinite(avg)) return false;
+
       if (noCountryFilter) return true;
       return selectedCountries.includes(code);
     },
@@ -633,7 +650,7 @@ async function showCountryAveragePolygons(){
       const code = countryNameToCode[nameRaw];
       const avg = avgPriceByCountry[code];
       const name = props.name || props.ADMIN || (code ? code.toUpperCase() : "");
-      const avgTxt = avg && isFinite(avg) ? avg.toFixed(2) + " €" : "keine Daten";
+      const avgTxt = isFinite(avg) ? avg.toFixed(2) + " €" : "keine Daten";
       layer.bindTooltip(`<b>${name}</b><br>Durchschnittspreis: ${avgTxt}`, {sticky:true});
     }
   }).addTo(map);
@@ -676,6 +693,7 @@ async function updateLayers(){
     gruen || orange || rot || grau ||
     kundenFlag || sackKundenFlag || sonstigeFlag;
 
+  // Wenn keine Markerfarben & Kunden sichtbar -> Landesdurchschnitt anzeigen
   if (!anyMarkerCheckboxOn) {
     await showCountryAveragePolygons();
     return;
