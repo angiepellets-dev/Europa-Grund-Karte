@@ -16,18 +16,8 @@
       font:14px/1.3 system-ui,Arial,sans-serif;
     }
 
-    .cert-box{
-      bottom:12px;
-      left:12px;
-      z-index:1000;
-    }
-
-    .legend{
-      bottom:12px;
-      right:12px;
-      min-width:180px;
-      z-index:3000;
-    }
+    .cert-box{bottom:12px;left:12px;z-index:1000;}
+    .legend{bottom:12px;right:12px;min-width:180px;z-index:3000;}
 
     .cert-box input[type="checkbox"],
     .legend input[type="checkbox"]{
@@ -48,12 +38,7 @@
     }
     .cert-box hr{border:none;height:1px;background:#eee;margin:6px 0}
 
-    .country-dropdown {
-      position: relative;
-      display: block;
-      width: 100%;
-      margin-top:8px;
-    }
+    .country-dropdown { position: relative; display: block; width: 100%; margin-top:8px; }
     .country-dropdown-button {
       width: 100%;
       background: #fff;
@@ -64,11 +49,7 @@
       cursor: pointer;
       box-sizing:border-box;
     }
-    .country-dropdown-button:after {
-      content: "▾";
-      float: right;
-      opacity: .6;
-    }
+    .country-dropdown-button:after { content: "▾"; float: right; opacity: .6; }
     .country-dropdown-menu {
       position: absolute;
       top: 110%;
@@ -85,7 +66,6 @@
       padding: 6px 8px;
       box-sizing:border-box;
     }
-
     .country-dropdown-menu label {
       display: flex;
       align-items: center;
@@ -96,20 +76,26 @@
       white-space: nowrap;
     }
     .country-dropdown-menu input[type="checkbox"] {
-      width:14px;
-      height:14px;
-      margin:0;
-      flex-shrink:0;
+      width:14px;height:14px;margin:0;flex-shrink:0;
+    }
+
+    /* kleines "Lade"-Overlay */
+    .loading {
+      position:absolute; top:12px; left:12px; z-index:5000;
+      background:#fff; padding:8px 10px; border-radius:6px;
+      box-shadow:0 2px 8px rgba(0,0,0,.12);
+      font:14px/1.3 system-ui,Arial,sans-serif;
+      display:none;
     }
   </style>
 </head>
 <body>
 <div id="map"></div>
+<div class="loading" id="loadingBox">Lade Marker…</div>
 
 <!-- Suche + Länderfilter -->
 <div class="search-box">
   🔍 <input type="text" id="searchInput" placeholder="Firma, Kunde oder Ort suchen…" />
-
   <b style="display:block;margin-top:6px;">Land / Länder filtern</b>
   <div class="country-dropdown" id="countryDropdown">
     <div class="country-dropdown-button" id="countryDropdownBtn">Alle Länder</div>
@@ -166,10 +152,11 @@
 <script>
 const map = L.map("map").setView([51, 11], 5);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  minZoom: 4,
-  maxZoom: 18,
-  attribution: "&copy; OpenStreetMap"
+  minZoom: 4, maxZoom: 18, attribution: "&copy; OpenStreetMap"
 }).addTo(map);
+
+const loadingBox = document.getElementById("loadingBox");
+function setLoading(on){ loadingBox.style.display = on ? "block" : "none"; }
 
 function colorForPrice(p, keinPreis) {
   if (keinPreis) return "#9e9e9e";
@@ -179,16 +166,37 @@ function colorForPrice(p, keinPreis) {
   return "red";
 }
 
+/* =========================
+   Geocoding: Queue + Retry
+   ========================= */
 const geoCache = JSON.parse(localStorage.getItem("geoCachePellets_EU") || "{}");
-async function geocode(q) {
-  if (geoCache[q] && geoCache[q].country_code) {
-    return geoCache[q];
+
+// einfache Queue: 1 Request ~ pro 1100ms, damit Nominatim nicht dichtmacht
+let geoQueue = Promise.resolve();
+let lastGeoTs = 0;
+const GEO_MIN_GAP_MS = 1100;
+
+function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+async function fetchWithTimeout(url, ms=12000){
+  const ctrl = new AbortController();
+  const t = setTimeout(()=>ctrl.abort(), ms);
+  try{
+    const r = await fetch(url, { signal: ctrl.signal, headers: { "Accept-Language": "de" } });
+    return r;
+  } finally {
+    clearTimeout(t);
   }
-  const r = await fetch(
-    `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(q)}&limit=1&accept-language=de`
-  );
+}
+
+async function geocodeDirect(q){
+  if (geoCache[q] && geoCache[q].country_code) return geoCache[q];
+
+  const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(q)}&limit=1&accept-language=de`;
+  const r = await fetchWithTimeout(url, 12000);
+  if (!r.ok) throw new Error("Geocode HTTP " + r.status);
+
   const d = await r.json();
-  if (d.length) {
+  if (d && d.length) {
     const item = d[0];
     const obj = {
       lat: +item.lat,
@@ -200,10 +208,37 @@ async function geocode(q) {
     localStorage.setItem("geoCachePellets_EU", JSON.stringify(geoCache));
     return obj;
   }
-  console.warn("Kein Geocode-Treffer:", q);
   return null;
 }
 
+async function geocode(q){
+  // queue-wrap: Abstand halten
+  geoQueue = geoQueue.then(async ()=>{
+    const now = Date.now();
+    const wait = Math.max(0, GEO_MIN_GAP_MS - (now - lastGeoTs));
+    if (wait) await sleep(wait);
+    lastGeoTs = Date.now();
+
+    // Retry: 3 Versuche mit Backoff
+    for (let attempt=1; attempt<=3; attempt++){
+      try{
+        const res = await geocodeDirect(q);
+        return res;
+      }catch(e){
+        const backoff = 800 * attempt;
+        console.warn("Geocode retry", attempt, q, e);
+        await sleep(backoff);
+      }
+    }
+    return null;
+  });
+
+  return geoQueue;
+}
+
+/* =========================
+   Icons
+   ========================= */
 const blauesDreieck = L.divIcon({
   className: "custom-triangle",
   html: `<svg width="24" height="24" viewBox="0 0 24 24">
@@ -240,43 +275,30 @@ let searchResultMarker = null;
 let countryGeoJson = null;
 let countryLayer = null;
 
-// Mapping von Ländernamen (GeoJSON) -> Ländercode
+// LayerGroups (stabiler)
+const groupFirmen = L.layerGroup().addTo(map);
+const groupKunden = L.layerGroup().addTo(map);
+const groupSackKunden = L.layerGroup().addTo(map);
+const groupSonstige = L.layerGroup().addTo(map);
+
 const countryNameToCode = {
-  "germany": "de",
-  "bundesrepublik deutschland": "de",
-  "austria": "at",
-  "republic of austria": "at",
-  "poland": "pl",
-  "republic of poland": "pl",
-  "czech republic": "cz",
-  "czechia": "cz",
-  "france": "fr",
-  "french republic": "fr",
-  "switzerland": "ch",
-  "swiss confederation": "ch",
-  "sweden": "se",
-  "kingdom of sweden": "se",
-  "denmark": "dk",
-  "kingdom of denmark": "dk",
-  "finland": "fi",
-  "republic of finland": "fi",
-  "netherlands": "nl",
-  "kingdom of the netherlands": "nl",
-  "latvia": "lv",
-  "republic of latvia": "lv",
-  "lithuania": "lt",
-  "republic of lithuania": "lt",
-  "estonia": "ee",
-  "republic of estonia": "ee",
-  "united kingdom": "gb",
-  "united kingdom of great britain and northern ireland": "gb",
-  "great britain": "gb",
-  "belgium": "be",
-  "kingdom of belgium": "be",
-  "slovakia": "sk",
-  "slovak republic": "sk",
-  "italy": "it",
-  "italian republic": "it"
+  "germany":"de","bundesrepublik deutschland":"de",
+  "austria":"at","republic of austria":"at",
+  "poland":"pl","republic of poland":"pl",
+  "czech republic":"cz","czechia":"cz",
+  "france":"fr","french republic":"fr",
+  "switzerland":"ch","swiss confederation":"ch",
+  "sweden":"se","kingdom of sweden":"se",
+  "denmark":"dk","kingdom of denmark":"dk",
+  "finland":"fi","republic of finland":"fi",
+  "netherlands":"nl","kingdom of the netherlands":"nl",
+  "latvia":"lv","republic of latvia":"lv",
+  "lithuania":"lt","republic of lithuania":"lt",
+  "estonia":"ee","republic of estonia":"ee",
+  "united kingdom":"gb","united kingdom of great britain and northern ireland":"gb","great britain":"gb",
+  "belgium":"be","kingdom of belgium":"be",
+  "slovakia":"sk","slovak republic":"sk",
+  "italy":"it","italian republic":"it"
 };
 
 function parseFirmenWithHeader(rows){
@@ -393,7 +415,6 @@ function sackFilterAktiv(){
   return (wantFireflies || want15kg);
 }
 
-// Durchschnitt pro Land (Werkspreise)
 function berechneDurchschnittProLand(){
   const sums = {};
   const counts = {};
@@ -422,25 +443,33 @@ function tooltipHtmlFromMarker(m){
 
   let avgTxt = "";
   const avg = avgPriceByCountry[m.country_code];
-  if (avg && isFinite(avg)) {
-    avgTxt = `<br><b>Landesdurchschnitt:</b> ${avg.toFixed(2)} €`;
-  }
+  if (avg && isFinite(avg)) avgTxt = `<br><b>Landesdurchschnitt:</b> ${avg.toFixed(2)} €`;
 
   return `<b>${m.firma}</b><br>${m.ort}<br>${preisTxt}${zertInfo}${sackInfo}${avgTxt}`;
 }
 
+function clearAllGroups(){
+  groupFirmen.clearLayers();
+  groupKunden.clearLayers();
+  groupSackKunden.clearLayers();
+  groupSonstige.clearLayers();
+}
+
 async function buildMap(){
+  setLoading(true);
   alleMarker = [];
-  const bounds=L.latLngBounds();
+  clearAllGroups();
+
+  const bounds = L.latLngBounds();
 
   // Werke
   for(const w of werke){
-    const c=geoCache[w.ort] && geoCache[w.ort].country_code ? geoCache[w.ort] : await geocode(w.ort);
-    if(!c)continue;
+    const c = (geoCache[w.ort] && geoCache[w.ort].country_code) ? geoCache[w.ort] : await geocode(w.ort);
+    if(!c){ console.warn("Werk ohne Geocode:", w.firma, w.ort); continue; }
 
     const farbeInit = sackFilterAktiv() ? w.farbeSack : w.farbeWerk;
 
-    const m=L.circleMarker([c.lat,c.lon],{radius:8,color:farbeInit,fillColor:farbeInit,fillOpacity:0.85})
+    const m = L.circleMarker([c.lat,c.lon],{radius:8,color:farbeInit,fillColor:farbeInit,fillOpacity:0.85})
       .bindTooltip("", {sticky:true})
       .on("tooltipopen", () => {
         m.getTooltip().setContent( tooltipHtmlFromMarker({
@@ -468,13 +497,14 @@ async function buildMap(){
       sack:(w.sack||""),
       country_code: (c.country_code || "")
     });
+
     bounds.extend([c.lat,c.lon]);
   }
 
   // Kunden
   for(const k of kunden){
-    const c=geoCache[k.ort] && geoCache[k.ort].country_code ? geoCache[k.ort] : await geocode(k.ort);
-    if(!c)continue;
+    const c = (geoCache[k.ort] && geoCache[k.ort].country_code) ? geoCache[k.ort] : await geocode(k.ort);
+    if(!c){ console.warn("Kunde ohne Geocode:", k.name, k.ort); continue; }
 
     const isSackOnly = (k.sackware === "ja") && (k.lose !== "ja");
     const isSonstige = (k.sonstige === "ja");
@@ -482,15 +512,10 @@ async function buildMap(){
     let type = "kunde";
     let iconToUse = blauesDreieck;
 
-    if (isSonstige) {
-      type = "sonstige";
-      iconToUse = orangeDreieck;
-    } else if (isSackOnly) {
-      type = "sackkunde";
-      iconToUse = lilaDreieck;
-    }
+    if (isSonstige) { type = "sonstige"; iconToUse = orangeDreieck; }
+    else if (isSackOnly) { type = "sackkunde"; iconToUse = lilaDreieck; }
 
-    const m=L.marker([c.lat,c.lon],{icon:iconToUse})
+    const m = L.marker([c.lat,c.lon],{icon:iconToUse})
       .bindTooltip(`<b>${k.name}</b><br>${k.ort}`,{sticky:true})
       .on("click",()=>handleMarkerClick(k.name,c));
 
@@ -508,16 +533,15 @@ async function buildMap(){
 
   berechneDurchschnittProLand();
 
-  if(bounds.isValid())map.fitBounds(bounds.pad(0.15));
+  if(bounds.isValid()) map.fitBounds(bounds.pad(0.15));
+  setLoading(false);
   updateLayers();
 }
 
 function getSelectedCountries() {
   const chks = document.querySelectorAll(".countryChk");
   const selected = [];
-  chks.forEach(ch => {
-    if (ch.checked) selected.push(ch.value);
-  });
+  chks.forEach(ch => { if (ch.checked) selected.push(ch.value); });
   if (selected.length === 0 || selected.includes("all")) return ["all"];
   return selected;
 }
@@ -528,25 +552,7 @@ function updateCountryButtonLabel() {
   if (selected.length === 1 && selected[0] === "all") {
     btn.textContent = "Alle Länder";
   } else {
-    const names = {
-      be:"BE",
-      dk:"DK",
-      de:"DE",
-      ee:"EE",
-      fi:"FI",
-      fr:"FR",
-      it:"IT",
-      lv:"LV",
-      lt:"LT",
-      nl:"NL",
-      at:"AT",
-      pl:"PL",
-      se:"SE",
-      ch:"CH",
-      sk:"SK",
-      cz:"CZ",
-      gb:"UK"
-    };
+    const names = {be:"BE",dk:"DK",de:"DE",ee:"EE",fi:"FI",fr:"FR",it:"IT",lv:"LV",lt:"LT",nl:"NL",at:"AT",pl:"PL",se:"SE",ch:"CH",sk:"SK",cz:"CZ",gb:"UK"};
     btn.textContent = selected.map(c => names[c] || c.toUpperCase()).join(", ");
   }
 }
@@ -565,50 +571,26 @@ async function ensureCountryGeoJsonLoaded() {
 
 function getCountryStyleForAvg(avg){
   if (!avg || !isFinite(avg)) {
-    return {
-      color: "#555",
-      weight: 1,
-      fillColor: "transparent",
-      fillOpacity: 0
-    };
+    return { color:"#555", weight:1, fillColor:"transparent", fillOpacity:0 };
   }
   let fillColor, borderColor;
-  if (avg <= 260) {
-    fillColor = "green";
-    borderColor = "#004400";
-  } else if (avg < 285) {
-    fillColor = "orange";
-    borderColor = "#aa5500";
-  } else {
-    fillColor = "red";
-    borderColor = "#880000";
-  }
-  return {
-    color: borderColor,
-    weight: 2,
-    fillColor: fillColor,
-    fillOpacity: 0.3
-  };
+  if (avg <= 260) { fillColor="green"; borderColor="#004400"; }
+  else if (avg < 285) { fillColor="orange"; borderColor="#aa5500"; }
+  else { fillColor="red"; borderColor="#880000"; }
+  return { color:borderColor, weight:2, fillColor, fillOpacity:0.3 };
 }
 
 async function showCountryAveragePolygons(){
-  alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
-
+  clearAllGroups();
   await ensureCountryGeoJsonLoaded();
   if (!countryGeoJson) return;
 
-  if (countryLayer) {
-    map.removeLayer(countryLayer);
-    countryLayer = null;
-  }
+  if (countryLayer) { map.removeLayer(countryLayer); countryLayer = null; }
 
   const selectedCountries = getSelectedCountries();
   const noCountryFilter = selectedCountries.length === 1 && selectedCountries[0] === "all";
 
-  const relevant = [
-    "de","at","pl","cz","fr","ch","se","dk","fi",
-    "nl","lv","lt","ee","gb","be","sk","it"
-  ];
+  const relevant = ["de","at","pl","cz","fr","ch","se","dk","fi","nl","lv","lt","ee","gb","be","sk","it"];
 
   countryLayer = L.geoJSON(countryGeoJson, {
     filter: function(feature){
@@ -640,25 +622,21 @@ async function showCountryAveragePolygons(){
 }
 
 function hideCountryPolygons(){
-  if (countryLayer) {
-    map.removeLayer(countryLayer);
-    countryLayer = null;
-  }
+  if (countryLayer) { map.removeLayer(countryLayer); countryLayer = null; }
 }
 
 async function updateLayers(){
   hideCountryPolygons();
-
-  alleMarker.forEach(m=>{ if(map.hasLayer(m.marker)) map.removeLayer(m.marker); });
+  clearAllGroups();
 
   const selectedCountries = getSelectedCountries();
   const noCountryFilter = selectedCountries.length === 1 && selectedCountries[0] === "all";
 
-  const en         = document.getElementById("chkEnPlus").checked;
-  const din        = document.getElementById("chkDINplus").checked;
-  const sure       = document.getElementById("chkSURE").checked;
-  const cpp        = document.getElementById("chkCPP").checked;
-  const ohne       = document.getElementById("chkOhneZert").checked;
+  const en   = document.getElementById("chkEnPlus").checked;
+  const din  = document.getElementById("chkDINplus").checked;
+  const sure = document.getElementById("chkSURE").checked;
+  const cpp  = document.getElementById("chkCPP").checked;
+  const ohne = document.getElementById("chkOhneZert").checked;
 
   const gruen      = document.getElementById("chkGruen").checked;
   const orange     = document.getElementById("chkOrange").checked;
@@ -682,31 +660,25 @@ async function updateLayers(){
   }
 
   for(const m of alleMarker){
+    // Länderfilter
+    const countryOK = noCountryFilter || (m.country_code && selectedCountries.includes(m.country_code));
+    if (!countryOK) continue;
+
+    // Kundenarten
     if(m.type === "kunde"){
-      if (kundenFlag) {
-        if (noCountryFilter || (m.country_code && selectedCountries.includes(m.country_code))) {
-          map.addLayer(m.marker);
-        }
-      }
+      if (kundenFlag) groupKunden.addLayer(m.marker);
       continue;
     }
     if(m.type === "sackkunde"){
-      if (sackKundenFlag) {
-        if (noCountryFilter || (m.country_code && selectedCountries.includes(m.country_code))) {
-          map.addLayer(m.marker);
-        }
-      }
+      if (sackKundenFlag) groupSackKunden.addLayer(m.marker);
       continue;
     }
     if(m.type === "sonstige"){
-      if (sonstigeFlag) {
-        if (noCountryFilter || (m.country_code && selectedCountries.includes(m.country_code))) {
-          map.addLayer(m.marker);
-        }
-      }
+      if (sonstigeFlag) groupSonstige.addLayer(m.marker);
       continue;
     }
 
+    // Firmen: Sack-Filter
     if (useSack) {
       const sNorm = (m.sack||"").toLowerCase().replace(/\s+/g,' ').trim();
       const hasFireflies = sNorm.includes("fireflies");
@@ -716,6 +688,7 @@ async function updateLayers(){
       if (wantFireflies && want15kg && !(hasFireflies || has15kg)) continue;
     }
 
+    // Zertifikate
     const z = m.zert || "";
     let zertOK = false;
     if(z.includes("enplus") && en) zertOK = true;
@@ -725,6 +698,7 @@ async function updateLayers(){
     if(!z && ohne) zertOK = true;
     if(!zertOK) continue;
 
+    // Farbe
     const aktiveFarbe = useSack ? m.farbeSack : m.farbeWerk;
 
     const isGruen  = aktiveFarbe === "green";
@@ -739,15 +713,10 @@ async function updateLayers(){
     if(isGrau && grau) sichtbar = true;
     if(!sichtbar) continue;
 
-    if (!noCountryFilter) {
-      if (!m.country_code || !selectedCountries.includes(m.country_code)) continue;
-    }
-
     m.marker.setStyle({color:aktiveFarbe, fillColor:aktiveFarbe});
-    if (m.marker.getTooltip()) {
-      m.marker.getTooltip().setContent( tooltipHtmlFromMarker(m) );
-    }
-    map.addLayer(m.marker);
+    if (m.marker.getTooltip()) m.marker.getTooltip().setContent( tooltipHtmlFromMarker(m) );
+
+    groupFirmen.addLayer(m.marker);
   }
 }
 
@@ -768,8 +737,7 @@ function luftlinieKm(aCoord, bCoord){
   const lat1 = toRad(aCoord.lat);
   const lat2 = toRad(bCoord.lat);
 
-  const h = Math.sin(dLat/2)**2 +
-            Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+  const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
   const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1-h));
   return R * c;
 }
@@ -793,9 +761,7 @@ async function showRoute(a,b){
 
         const useSack = sackFilterAktiv();
         const firmeneintrag = werke.find(w => w.firma === a.label || w.firma === b.label);
-        const firmenPreis = firmeneintrag
-          ? (useSack ? firmeneintrag.preisSack : firmeneintrag.preis)
-          : 0;
+        const firmenPreis = firmeneintrag ? (useSack ? firmeneintrag.preisSack : firmeneintrag.preis) : 0;
 
         const preisProKm = parseFloat(dist) < 250 ? 2.15 : 1.85;
         const teilstrecke = parseFloat(dist) / 24;
@@ -827,27 +793,17 @@ async function showRoute(a,b){
 
     const useSack = sackFilterAktiv();
     const firmeneintrag = werke.find(w => w.firma === a.label || w.firma === b.label);
-    const firmenPreis = firmeneintrag
-      ? (useSack ? firmeneintrag.preisSack : firmeneintrag.preis)
-      : 0;
+    const firmenPreis = firmeneintrag ? (useSack ? firmeneintrag.preisSack : firmeneintrag.preis) : 0;
 
     const preisProKm = distNum < 250 ? 2.15 : 1.85;
     const teilstrecke = distNum / 24;
     const berechnung = teilstrecke * preisProKm;
     const gesamt = ((berechnung + (firmenPreis||0)) * 1.05).toFixed(2);
 
-    const coords = [
-      [a.coord.lat, a.coord.lon],
-      [b.coord.lat, b.coord.lon]
-    ];
+    const coords = [[a.coord.lat, a.coord.lon],[b.coord.lat, b.coord.lon]];
 
     if(routeLine) map.removeLayer(routeLine);
-    routeLine = L.polyline(coords,{
-      color:'blue',
-      weight:4,
-      opacity:0.9,
-      dashArray:'8 8'
-    }).addTo(map);
+    routeLine = L.polyline(coords,{color:'blue',weight:4,opacity:0.9,dashArray:'8 8'}).addTo(map);
 
     const midLat = (a.coord.lat + b.coord.lat)/2;
     const midLon = (a.coord.lon + b.coord.lon)/2;
@@ -868,34 +824,31 @@ async function showRoute(a,b){
 map.on('click', (e) => {
   const t = e.originalEvent && e.originalEvent.target;
   if (t && t.closest) {
-    if (t.closest('.leaflet-marker-icon') ||
-        t.closest('.leaflet-popup') ||
-        t.closest('.leaflet-interactive')) {
-      return;
-    }
+    if (t.closest('.leaflet-marker-icon') || t.closest('.leaflet-popup') || t.closest('.leaflet-interactive')) return;
   }
-  if (routeLine) {
-    map.removeLayer(routeLine);
-    routeLine = null;
-  }
+  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
   selectedPoints = [];
   map.closePopup();
 });
+
+// Debounce: verhindert “kurz leer”-Zustände beim schnellen Klicken
+let updTimer = null;
+function scheduleUpdate(){
+  clearTimeout(updTimer);
+  updTimer = setTimeout(()=>updateLayers(), 0);
+}
 
 document.addEventListener("change", e => {
   if (e.target && e.target.matches('input[type="checkbox"]')) {
     if (e.target.classList.contains("countryChk")) {
       if (e.target.value === "all" && e.target.checked) {
-        document.querySelectorAll(".countryChk").forEach(ch => {
-          if (ch.value !== "all") ch.checked = false;
-        });
+        document.querySelectorAll(".countryChk").forEach(ch => { if (ch.value !== "all") ch.checked = false; });
       } else if (e.target.value !== "all" && e.target.checked) {
-        const allChk = document.querySelector('.countryChk[value="all"]');
-        allChk.checked = false;
+        document.querySelector('.countryChk[value="all"]').checked = false;
       }
       updateCountryButtonLabel();
     }
-    updateLayers();
+    scheduleUpdate();
   }
 });
 
@@ -903,25 +856,19 @@ document.getElementById("countryDropdownBtn").addEventListener("click", () => {
   const menu = document.getElementById("countryDropdownMenu");
   menu.style.display = (menu.style.display === "block") ? "none" : "block";
 });
-
 document.addEventListener("click", (e) => {
   const dd = document.getElementById("countryDropdown");
-  if (!dd.contains(e.target)) {
-    document.getElementById("countryDropdownMenu").style.display = "none";
-  }
+  if (!dd.contains(e.target)) document.getElementById("countryDropdownMenu").style.display = "none";
 });
 
-// Suche: Firmen/Kunden + Ort, inkl. blauer Suchpunkt als erster Routenpunkt
+// Suche
 document.getElementById("searchInput").addEventListener("keydown", async e => {
   if (e.key === "Enter") {
     const raw = e.target.value.trim();
     const query = raw.toLowerCase();
     if (!query) return;
 
-    if (routeLine) {
-      map.removeLayer(routeLine);
-      routeLine = null;
-    }
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
     selectedPoints = [];
 
     if (searchResultMarker && map.hasLayer(searchResultMarker)) {
@@ -933,37 +880,23 @@ document.getElementById("searchInput").addEventListener("keydown", async e => {
       const tooltipContent = (m.marker.getTooltip && m.marker.getTooltip().getContent)
         ? String(m.marker.getTooltip().getContent()).toLowerCase()
         : "";
-
       const name = (m.firma || m.name || "").toLowerCase();
       const ort  = (m.ort   || "").toLowerCase();
-
       return tooltipContent.includes(query) || name.includes(query) || ort.includes(query);
     });
 
     const bounds = L.latLngBounds();
-
     matches.forEach((m, idx) => {
       const latlng = m.marker.getLatLng();
-      if (!map.hasLayer(m.marker)) {
-        map.addLayer(m.marker);
-      }
       bounds.extend(latlng);
-      if (idx === 0 && m.marker.openTooltip) {
-        m.marker.openTooltip();
-      }
+      if (idx === 0 && m.marker.openTooltip) m.marker.openTooltip();
     });
 
     try {
       const geo = await geocode(raw);
       if (geo) {
         const latlng = [geo.lat, geo.lon];
-
-        searchResultMarker = L.circleMarker(latlng, {
-          radius: 8,
-          color: 'blue',
-          fillColor: 'blue',
-          fillOpacity: 0.5
-        }).addTo(map);
+        searchResultMarker = L.circleMarker(latlng, { radius:8, color:'blue', fillColor:'blue', fillOpacity:0.5 }).addTo(map);
 
         const countryText = geo.country ? `<br>${geo.country}` : "";
         searchResultMarker
@@ -972,27 +905,17 @@ document.getElementById("searchInput").addEventListener("keydown", async e => {
 
         bounds.extend(latlng);
 
-        selectedPoints.push({
-          label: raw,
-          coord: { lat: geo.lat, lon: geo.lon }
-        });
-
+        selectedPoints.push({ label: raw, coord: { lat: geo.lat, lon: geo.lon } });
         searchResultMarker.on("click", () => {
-          selectedPoints = [{
-            label: raw,
-            coord: { lat: geo.lat, lon: geo.lon }
-          }];
+          selectedPoints = [{ label: raw, coord: { lat: geo.lat, lon: geo.lon } }];
         });
       }
     } catch (err) {
       console.error(err);
     }
 
-    if (bounds.isValid()) {
-      map.fitBounds(bounds.pad(0.2));
-    } else if (!matches.length) {
-      alert("Kein Treffer gefunden.");
-    }
+    if (bounds.isValid()) map.fitBounds(bounds.pad(0.2));
+    else if (!matches.length) alert("Kein Treffer gefunden.");
   }
 });
 
